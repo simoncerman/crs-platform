@@ -1,0 +1,15 @@
+graph LR
+    ROOT["{session_id}"] --> DTYPE["rocket | test-stand"]
+    DTYPE --> DEVICE["{device_id}"]
+    DEVICE --> TEL["telemetry"]
+    TEL --> POS["position<br/>alt, lat, lon, ts"]
+    TEL --> VEL["velocity<br/>vx, vy, vz, speed, ts"]
+    TEL --> SENS["sensors<br/>temp, pressure, battery,<br/>gyro, phase, ts"]
+
+    style ROOT fill:#e74c3c,color:#fff
+    style DTYPE fill:#e67e22,color:#fff
+    style DEVICE fill:#f1c40f,color:#333
+    style TEL fill:#2ecc71,color:#fff
+    style POS fill:#3498db,color:#fff
+    style VEL fill:#3498db,color:#fff
+    style SENS fill:#3498db,color:#fff

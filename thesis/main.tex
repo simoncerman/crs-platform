@@ -1,0 +1,165 @@
+\documentclass[12pt,a4paper]{report}
+
+% Kódování a jazyk
+\usepackage[utf8]{inputenc}
+\usepackage[czech]{babel}
+\usepackage[T1]{fontenc}
+
+% Písmo — Charter (text) + Source Sans Pro (nadpisy) + matching math
+\usepackage{XCharter}
+\usepackage[scaled=0.95]{sourcesanspro}
+\usepackage[charter,vvarbb]{newtxmath}
+
+% Bezpatkové nadpisy (Helvetica)
+\usepackage{titlesec}
+\titleformat{\chapter}[display]
+  {\normalfont\sffamily\bfseries\LARGE}
+  {\chaptertitlename\ \thechapter}{0.5em}{}
+\titleformat{\section}
+  {\normalfont\sffamily\bfseries\Large}
+  {\thesection}{0.5em}{}
+\titleformat{\subsection}
+  {\normalfont\sffamily\bfseries\large}
+  {\thesubsection}{0.5em}{}
+\titleformat{\paragraph}[hang]
+  {\normalfont\bfseries\normalsize}
+  {}{0em}{}
+\titlespacing*{\paragraph}{0pt}{1em}{0.5em}
+
+% Grafika a obrázky
+\usepackage{graphicx}
+\graphicspath{{images/}}
+
+% Matematika (newtxmath obsahuje amsmath i amssymb funkce)
+
+% Landscape stránky (přílohy)
+\usepackage{pdflscape}
+
+% Vkládání externích PDF (zadání práce z IS STAG)
+\usepackage{pdfpages}
+
+% Odkazy a reference
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    citecolor=blue,
+    urlcolor=blue
+}
+
+% Formátování stránky
+\usepackage[left=3.5cm,right=2cm,top=2cm,bottom=2cm]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+
+% Diagramy
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric, calc, backgrounds, fit}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{float}
+
+% Výpisy kódu
+\usepackage{listings}
+\usepackage{xcolor}
+
+% Nastavení výpisů kódu
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue}\bfseries,
+    commentstyle=\color{green!60!black},
+    stringstyle=\color{red},
+    showstringspaces=false,
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    captionpos=b
+}
+
+% Bibliografie
+\usepackage[style=iso-numeric,backend=biber]{biblatex}
+\addbibresource{bibliography.bib}
+
+% Metadata a titulní stránka
+\input{metadata}
+
+\begin{document}
+
+% Titulní stránka
+\input{titlepage}
+
+% Čestné prohlášení
+\input{declaration}
+
+% Poděkování
+\input{acknowledgments}
+
+% Abstrakt
+\chapter*{Abstrakt}
+\begin{sloppypar}
+Tato bakalářská práce se zabývá návrhem a~implementací interaktivní webové platformy pro studentský raketový spolek Czech Rocket Society. Cílem bylo vytvořit moderní aplikaci nahrazující stávající statický web, která umožní správu obsahu bez programátorských znalostí, digitalizuje náborový proces a~poskytne nástroje pro vizualizaci telemetrických dat z~raketových letů v~reálném čase.
+\end{sloppypar}
+
+Architektura platformy je složena ze~tří aplikací v~monorepo struktuře: frontend v~Next.js se~serverovým vykreslováním, REST API backend postavený na~frameworku Hono s~ORM Drizzle a~databází PostgreSQL a~telemetrický server v~Go zpracovávající data přenášená protokolem MQTT a~ukládaná do~časové databáze InfluxDB.
+
+Výsledkem je funkční aplikace zahrnující veřejný web, administrační CMS, vícekrokový náborový formulář s~průběžným ukládáním a~e-mailovými notifikacemi a~telemetrický dashboard s~dvoukanálovým příjmem dat a~přehráváním historických záznamů. Aplikace byla ověřena sadou automatizovaných unit a~integračních testů i~manuálním testováním. Celé řešení je kontejnerizováno pomocí Docker Compose a~připraveno k~nasazení do produkčního prostředí spolku.
+
+\vspace{1em}
+\noindent\textbf{Klíčová slova:} \keywords
+
+\chapter*{Abstract}
+
+\noindent\textbf{Title: \thesistitleEN}
+
+\vspace{1em}
+
+\noindent This bachelor thesis deals with the design and implementation of an interactive web platform for the student rocketry club Czech Rocket Society. The goal was to create a~modern application replacing the existing static website, enabling content management without programming knowledge, digitizing the recruitment process and providing tools for real-time visualization of telemetric data from rocket flights.
+
+The platform architecture consists of three applications in a~monorepo structure: a~Next.js frontend with server-side rendering, a~REST API backend built on the Hono framework with Drizzle ORM and a~PostgreSQL database, and a~telemetry server written in Go processing data transmitted via the MQTT protocol and stored in the InfluxDB time-series database.
+
+The result is a~functional application comprising a~public website, an administrative CMS, a~multi-step recruitment form with auto-save and email notifications, and a~telemetry dashboard with dual-channel data reception and historical data playback. The application was verified by a~suite of automated unit and integration tests as well as manual testing. The entire solution is containerized using Docker Compose and ready for deployment in the club's production environment.
+
+\vspace{1em}
+\noindent\textbf{Keywords:} \keywordsEN
+
+\clearpage
+
+% Obsah
+\tableofcontents
+\clearpage
+
+% Seznam obrázků
+\listoffigures
+\clearpage
+
+% Seznam tabulek
+\listoftables
+\clearpage
+
+% Seznam zkratek
+\input{abbreviations}
+\clearpage
+
+% Kapitoly
+\input{chapters/01_uvod}
+\input{chapters/02_cil_metodika}
+\input{chapters/03_analyza}
+\input{chapters/04_navrh}
+\input{chapters/05_implementace}
+\input{chapters/06_testovani}
+\input{chapters/07_diskuse}
+\input{chapters/08_zaver}
+
+% Literatura
+\printbibliography[title={Literatura}]
+
+% Přílohy
+\appendix
+% Číslo přílohy v pravém horním rohu (arabské číslice, dle směrnice FIM UHK)
+\titleformat{\chapter}[display]
+  {\normalfont\sffamily\bfseries\LARGE}
+  {\hfill Příloha~\thechapter}{0.5em}{}
+\input{chapters/appendix}
+
+\end{document}

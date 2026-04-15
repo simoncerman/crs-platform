@@ -1,0 +1,223 @@
+\chapter{Implementace}
+\label{chap:implementace}
+
+Tato kapitola popisuje implementaci jednotlivých částí platformy -- od vývojového prostředí přes backend a~frontend až po telemetrický systém a~kontejnerizaci. Důraz je kladen na klíčová technická rozhodnutí a~vzory, které se opakují napříč celou aplikací.
+
+\section{Vývojové prostředí a~nástroje}
+
+Vývoj probíhá v~editoru \textbf{VS Code} za~pomoci nástroje \textbf{Claude Code} pro generování kódu, refaktoring a~hromadné úpravy napříč projektem. Verzování zajišťuje \textbf{Git} s~repozitářem na~GitHubu.
+
+Jako správce balíčků slouží \textbf{pnpm}, který byl zvolen pro nativní podporu workspaces potřebnou pro monorepo strukturu a~sdílené úložiště balíčků, díky kterému se závislosti na~disku neduplikují. Pro běh TypeScript kódu bez předchozí kompilace se používá \textbf{tsx} -- runtime, který transpiluje TypeScript za~běhu a~podporuje moduly ECMAScript (ESM). Toto řešení bylo zvoleno proto, že kompilátor \texttt{tsc} při výstupu do~ESM nepřidává přípony \texttt{.js} k~importům, což v~Node.js vede k~runtime chybě (\texttt{ERR\_\allowbreak MODULE\_\allowbreak NOT\_\allowbreak FOUND}).
+
+Infrastrukturní služby (PostgreSQL, InfluxDB, Mosquitto, MailHog) běží v~\textbf{Docker} kontejnerech, což zajišťuje konzistentní prostředí bez nutnosti lokální instalace jednotlivých služeb.
+
+\section{Struktura monorepa}
+
+Repozitář je organizován jako monorepo s~následující adresářovou strukturou:
+
+\begin{verbatim}
++-- apps/
+|   +-- api/          # Hono REST API (TypeScript, Node.js)
+|   +-- web/          # Next.js frontend (React, TypeScript)
+|   +-- telemetry/    # Go telemetricky server
++-- docker/           # Docker Compose konfigurace
++-- pnpm-workspace.yaml
+\end{verbatim}
+
+Soubor \texttt{pnpm-workspace.yaml} definuje \texttt{apps/*} jako workspace balíčky. Díky tomu lze spouštět příkazy pro všechny aplikace najednou (\texttt{pnpm dev} spustí paralelně frontend i~backend) nebo cíleně pro jednu aplikaci (\texttt{pnpm --filter api build}).
+
+\section{Backend -- Hono API}
+
+\subsection{Middleware a routing}
+
+\begin{sloppypar}
+Vstupní bod backendu je soubor \texttt{server.ts}, kde se inicializuje instance Hono, konfiguruje řetězec middleware popsaný v~sekci~\ref{sec:navrh-bezpecnost} a~připojují se route handlery. Každá skupina endpointů (články, události, projekty apod.) je implementována jako samostatná Hono instance v~adresáři \texttt{src/\allowbreak routes/} a~připojena metodou \texttt{app.route()} na~vlastní prefix začínající \texttt{/api} (například \texttt{app.route(\allowbreak '/api/\allowbreak articles',\allowbreak{} articles\-Router)}). API dokumentace je přístupná přes Swagger~UI na~cestě \texttt{/docs} s~OpenAPI~3.0 specifikací.
+\end{sloppypar}
+
+\subsection{Databázová vrstva -- Drizzle ORM}
+
+Připojení k~databázi je konfigurováno v~souboru \texttt{src/db/index.ts} s~connection poolem. Drizzle ORM generuje typově bezpečné SQL dotazy přímo z~TypeScriptového schématu.
+
+Typický CRUD vzor na příkladu článků:
+
+\begin{sloppypar}
+\begin{itemize}
+    \item \textbf{Čtení:} \texttt{db.select().from(articles).\allowbreak where(\allowbreak eq(\allowbreak articles.status,\allowbreak{} 'published'))}
+    \item \textbf{Vytvoření:} \texttt{db.insert(articles).\allowbreak values(data).\allowbreak returning()} -- metoda \texttt{returning()} vrací vložený záznam včetně vygenerovaného UUID.
+    \item \textbf{Aktualizace:} \texttt{db.update(articles).\allowbreak set(data).\allowbreak where(\allowbreak eq(\allowbreak articles.id,\allowbreak{} id)).\allowbreak returning()}
+    \item \textbf{Smazání:} \texttt{db.delete(articles).\allowbreak where(\allowbreak eq(\allowbreak articles.id,\allowbreak{} id))}
+\end{itemize}
+\end{sloppypar}
+
+Databázové schéma se synchronizuje příkazem \texttt{pnpm db:push}, který porovná TypeScript definici s~aktuálním stavem databáze a~aplikuje změny. Pro naplnění vývojové databáze testovacími daty slouží příkaz \texttt{pnpm db:seed}.
+
+\subsection{Autentizace a validace}
+
+Autentizační tok a~bezpečnostní mechanismy jsou popsány v~sekci~\ref{sec:navrh-bezpecnost}. Z~hlediska implementace je klíčové rozložení kódu do modulů: \texttt{src/lib/jwt.ts} zapouzdřuje práci s~JWT tokeny (podepisování klíčem z~\texttt{JWT\_SECRET}, ověření podpisu a~expirace), \texttt{src/middleware/auth.ts} obsahuje middleware funkce a~\texttt{src/routes/auth.ts} implementuje přihlašovací a~registrační endpoint.
+
+Validační Zod schémata jsou oddělena do adresáře \texttt{src/schemas/} a~integrována s~Hono prostřednictvím \texttt{@hono/zod-validator}, který je aplikuje jako middleware před samotným route handlerem. Díky tomu handler vždy obdrží typově ověřená data.
+
+\subsection{Nahrávání souborů}
+
+\begin{sloppypar}
+Nahrávání souborů popsané v~sekci~\ref{sec:navrh-upload} je implementováno ve~dvou modulech: \texttt{upload.ts} pro obecné nahrávání a~\texttt{media.ts} pro správu knihovny médií. Soubory jsou zpracovány vestavěnou metodou \texttt{c.req.\allowbreak parseBody()} frameworku Hono. V~knihovně médií jsou názvy souborů generovány pomocí UUID, čímž se předchází kolizím při současném nahrávání více souborů; v~obecném upload endpointu se používá časové razítko jako jednodušší varianta.
+\end{sloppypar}
+
+\subsection{E-mailový systém}
+
+E-maily jsou odesílány knihovnou Nodemailer přes SMTP (Simple Mail Transfer Protocol) server. Ve vývojovém prostředí slouží jako SMTP server MailHog, který zachytává všechny odeslané e-maily a~zobrazuje je ve webovém rozhraní bez skutečného doručení.
+
+E-mailové šablony jsou implementovány jako funkce vracející HTML řetězec s~tabulkovým layoutem pro kompatibilitu s~e-mailovými klienty. Platforma odesílá tři typy e-mailů: odkaz pro pokračování v~rozpracované přihlášce, potvrzení odeslání přihlášky a~notifikaci administrátora o~nové přihlášce.
+
+\section{Frontend -- Next.js}
+
+\subsection{Veřejné stránky}
+
+Veřejné stránky využívají App Router v~režimu serverových komponent -- data se načítají přímo na serveru při každém požadavku (\texttt{dynamic = 'force-dynamic'}). API klient v~souboru \texttt{lib/api.ts} detekuje prostředí (server vs.~prohlížeč) a~volí odpovídající URL -- na serveru interní Docker adresu, v~prohlížeči veřejnou adresu.
+
+Stránky s~dynamickým obsahem (články, události, projekty) používají v~URL slug popsaný v~sekci~\ref{sec:navrh-verejne-stranky}.
+
+\subsection{Administrační rozhraní}
+
+Administrace je implementována jako route group \texttt{(dashboard)} se sdíleným layoutem. Layout obsahuje horní lištu s~informacemi o~přihlášeném uživateli a~tlačítkem pro odhlášení a~postranní navigační panel se sekcemi vyjmenovanými v~sekci~\ref{sec:navrh-verejne-stranky}. Aktivní položka je zvýrazněna na základě aktuální URL cesty.
+
+CRUD formuláře jsou postaveny na knihovně React Hook Form s~Zod validací. Formulář pro články navíc obsahuje automatické generování slugu z~názvu a~rich-text editor pro formátování obsahu.
+
+\paragraph{Rich-text editor}
+\label{sec:impl-richtext}
+
+Pro formátování obsahu článků, událostí a~projektů slouží rich-text editor postavený na knihovně \textbf{Tiptap} -- moderním editoru založeném na ProseMirror. Editor je integrován jako React komponenta \texttt{RichTextEditor} s~hookem \texttt{useEditor}, který spravuje stav editoru a~při každé změně vrací obsah jako standardní HTML string.
+
+Toolbar obsahuje všechny běžné formátovací nástroje potřebné pro tvorbu strukturovaného obsahu. Tlačítka jsou implementována jako SVG (Scalable Vector Graphics) ikony s~vizuálním zvýrazněním aktivního stavu -- editor při každé transakci aktualizuje stav tlačítek včetně situace, kdy uživatel aktivuje formátování na prázdném řádku (tzv. stored marks).
+
+Obsah je uložen v~databázi jako HTML řetězec a~na~veřejných stránkách vykreslen s~odpovídajícím stylováním. Volba knihovny Tiptap a~důvody migrace z~původního řešení jsou popsány v~sekci~\ref{sec:test-richtext}. Ukázka editoru v~administračním rozhraní je zachycena na~obrázku~\ref{fig:richtext-editor}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{richtext-editor.png}
+\caption{Rich-text editor Tiptap v~administraci s~toolbarem a~ukázkou formátovaného obsahu.}
+\label{fig:richtext-editor}
+\end{figure}
+
+\paragraph{Knihovna médií}
+
+Komponenta \texttt{ImageUploader} slouží jako galerie nahraných obrázků s~možností nahrávání nových souborů. Při vkládání obrázku do obsahu (např.~náhled článku) se otevře modální okno \texttt{ImagePickerModal}, ve kterém uživatel vybere existující obrázek z~knihovny nebo nahraje nový. Vybraný obrázek je zvýrazněn tyrkysovým okrajem.
+
+\subsection{Autentizace na frontendu}
+
+Autentizační tok mezi frontendem a~backendem je popsán v~sekci~\ref{sec:navrh-bezpecnost}. Implementačně je konfigurace NextAuth v5 umístěna v~souboru \texttt{lib/auth.ts}, kde jsou definovány callbacky \texttt{jwt()} a~\texttt{session()} pro přenos backend tokenu do klientské session. Ochrana administračních rout je zajištěna middleware v~souboru \texttt{middleware.ts}, který pokrývá vzor \texttt{/admin/:path*}.
+
+Specifickým implementačním detailem je nastavení \texttt{trustHost: true}, které je nezbytné pro správnou funkci NextAuth za~reverse proxy v~Docker prostředí -- bez něj NextAuth odmítá požadavky kvůli neshodě mezi hlavičkou \texttt{Host} a~odvozeným base URL.
+
+\subsection{Náborový formulář}
+
+Náborový proces navržený v~sekci~\ref{sec:navrh-nabor} je implementován komponentou \texttt{Recruitment\-Form}. Formulář je řízen stavem \texttt{current\-Step} (0--5) s~jediným \texttt{useForm} hookem spravujícím data všech kroků, přičemž přechody mezi kroky jsou animovány knihovnou Framer Motion.
+
+\begin{sloppypar}
+Klíčovým implementačním detailem je automatické ukládání rozpracované přihlášky realizované debouncerem -- \texttt{useEffect} sleduje změny formulářových dat a~po~2~sekundách nečinnosti odešle aktuální stav na~server. Identifikátor draftu a~e-mail jsou uloženy v~URL parametrech (\texttt{?draft=ID\&\allowbreak email=EMAIL}), takže zůstávají zachovány i~po~zavření prohlížeče. Funkce \texttt{get\-Resume\-Step()} analyzuje vyplněná pole v~obráceném pořadí a~vrátí číslo kroku, od~kterého má uchazeč pokračovat.
+\end{sloppypar}
+
+Přístup k~rozpracované přihlášce je chráněn kombinací UUID draftu a~e-mailové adresy -- API při načtení ověřuje shodu obou identifikátorů, takže k~datům přihlášky se dostane pouze uchazeč, který obdržel odkaz e-mailem.
+
+Dostupné role a~úkoly formulář načítá při inicializaci z~veřejného API endpointu \texttt{GET\allowbreak{} /api/\allowbreak recruitment/\allowbreak settings/\allowbreak public}, který vrací aktuální konfiguraci z~tabulky \texttt{recruitment\-\_settings} bez nutnosti autentizace. Úkoly se filtrují podle vybrané role uchazeče -- zobrazí se pouze ty, které jsou k~dané roli přiřazeny, případně úkoly bez přiřazení určené všem uchazečům.
+
+\subsection{Design systém a stylování}
+
+Vizuální stránka aplikace je postavena na~frameworku Tailwind CSS~v4 s~vlastní barevnou paletou definovanou jako proměnné CSS. Aktuální paleta používá kosmický motiv (tmavé pozadí \texttt{deep-space}, akcenty \texttt{aurora-cyan} a~\texttt{aurora-blue}), který byl zvolen nezávisle na~oficiální vizuální identitě spolku. V~konfiguračním souboru jsou paralelně definovány i~oficiální barvy CRS (například \texttt{crs-base}, \texttt{crs-ignition}), připravené pro budoucí sjednocení vizuálního stylu se značkou spolku, která se v~době vývoje stále formovala.
+
+Typografie využívá tři fonty načítané přes \texttt{next/font/google}: \textbf{Raleway} pro nadpisy, \textbf{Roboto Slab} jako základní písmo a~\textbf{Comfortaa} pro akcentové prvky. Responzivní design je řešen prostřednictvím Tailwind bodů zlomu -- rozložení se přizpůsobuje šířce obrazovky od~mobilních zařízení po~širokoúhlé monitory. Animace přechodů a~interakcí zajišťuje knihovna Framer Motion.
+
+\section{Telemetrický systém}
+
+\subsection{Go server}
+
+Telemetrický server je strukturován podle konvence Go projektů s~adresáři \texttt{cmd/} pro vstupní body a~\texttt{internal/} pro interní balíčky:
+
+\begin{verbatim}
+apps/telemetry/
++-- cmd/
+|   +-- server/main.go       # Vstupni bod serveru
+|   +-- simulator/main.go    # Vstupni bod simulatoru
++-- internal/
+    +-- config/    # Konfigurace z promennych prostredi
+    +-- mqtt/      # MQTT subscriber a parsovani topiku
+    +-- influx/    # InfluxDB batch writer a dotazy
+    +-- ws/        # WebSocket hub a distribuce dat
+    +-- api/       # HTTP router (Chi) a REST endpointy
+\end{verbatim}
+
+Při spuštění \texttt{main.go} inicializuje všechny komponenty, propojí MQTT subscriber s~InfluxDB writerem a~WebSocket hubem prostřednictvím handler funkcí (každá přijatá zpráva je předána oběma konzumentům přímým voláním) a~spustí HTTP server. WebSocket hub uvnitř pracuje s~Go kanály pro asynchronní distribuci klientům. Při ukončení (signál SIGINT/SIGTERM) proběhne graceful shutdown -- prostřednictvím \texttt{defer} se uzavřou MQTT a~InfluxDB klienti, čímž se dokončí rozpracované dávkové zápisy.
+
+\subsection{MQTT komunikace}
+
+MQTT komunikace navržená v~sekci~\ref{sec:navrh-telemetrie} je implementována v~balíčku \texttt{internal/mqtt}. Registrace handlerů probíhá přes metodu \texttt{OnMessage()}, která umožňuje připojit libovolný počet konzumentů -- v~produkční konfiguraci jsou registrovány dva: InfluxDB writer a~WebSocket hub.
+
+\subsection{WebSocket hub}
+
+WebSocket hub sdružuje zprávy do mikrodávek s~intervalem 16\,ms, který odpovídá obnovovací frekvenci většiny monitorů (60\,Hz) -- prohlížeč překresluje rozhraní prostřednictvím \texttt{request\-Animation\-Frame} přibližně každých 16{,}67\,ms~\cite{mdn2024raf}, takže častější odesílání dat by nepřineslo vizuální zlepšení, zatímco delší interval by způsobil viditelné skoky v~grafech.
+
+Pokud klient nestíhá zprávy přijímat, hub aktivuje mechanismus zpětného tlaku (backpressure) a~starší nedoručené zprávy zahazuje, aby fronta nerostla do nekonečna. Toto zahazování se týká výhradně WebSocket distribuce -- zápis do InfluxDB probíhá nezávislou cestou přímo z~MQTT subscriberu, takže žádná data se v~databázi neztrácejí. Pro uživatele to znamená dočasné snížení rozlišení grafů; po stabilizaci spojení se plné rozlišení automaticky obnoví.
+
+Spojení je udržováno prostřednictvím ping/pong zpráv v~intervalu 30~sekund. Při výpadku spojení se klient automaticky pokusí o~opětovné připojení.
+
+\subsection{Real-time vizualizace v~prohlížeči}
+
+\begin{sloppypar}
+Frontendová část telemetrie je organizována kolem React kontextu \texttt{TelemetryProvider}, který spravuje připojení k~datovým kanálům a~zpřístupňuje přijatá data komponentám prostřednictvím custom hooků (\texttt{useGoWebSocket} pro kanál~A, \texttt{useDirectMqtt} pro kanál~B).
+\end{sloppypar}
+
+Přijatá data jsou akumulována v~paměti po celou dobu letu -- historické pole pro každou měřenou veličinu (pozice, rychlost, senzory) se neořezávají, takže graf zobrazuje kompletní průběh od začátku příjmu. Pokud data přestanou přicházet déle než jednu sekundu, provider nastaví příznak \texttt{isStale} a~stavová lišta zobrazí varovný indikátor. Grafy v~tomto režimu prodlouží poslední známou hodnotu rovnou čárou do aktuálního času.
+
+Vizualizační komponenty zahrnují časové grafy výšky a~rychlosti (knihovna Recharts) s~osou X synchronizovanou se systémovým časem, obloukové ukazatele aktuálních hodnot senzorů (výška, rychlost, teplota, baterie), GPS mapu s~trajektorií letu (Leaflet s~tmavými mapovými dlaždicemi) včetně vzdálenosti od~místa vzletu, panel maximálních hodnot a~indikátor fáze letu. Stavová lišta umožňuje přepínání kanálů, vymazání dat před novým startem a~doplnění historických dat z~InfluxDB -- operátor se tak může připojit k~probíhajícímu letu a~doplnit si průběh, který zameškal. Ukázka kompletního live dashboardu při běžícím simulátoru je zachycena na~obrázku~\ref{fig:telemetry-live}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{telemetry-live.png}
+\caption{Telemetrický dashboard v~live režimu -- časové grafy výšky a~rychlosti, obloukové ukazatele senzorů, GPS trajektorie a~stavová lišta s~přepínačem kanálů.}
+\label{fig:telemetry-live}
+\end{figure}
+
+\subsection{Prohlížení historických dat}
+
+Stránka historie zobrazuje statické grafy zaznamenaného letu (výška, rychlost, teplota, tlak) načtené z~InfluxDB prostřednictvím REST API telemetrického serveru. Uživatel volí rozlišení dat (od~surových až~po~30sekundové agregace) -- server použije agregační funkci \texttt{aggregateWindow} pro snížení objemu přenášených bodů. Data lze exportovat do~formátu CSV nebo JSON pro další zpracování a~dlouhodobé ukládání.
+
+\subsection{Simulátor}
+
+Simulátor (\texttt{cmd/simulator/main.go}) generuje realistická telemetrická data modelováním průběhu letu v~sedmi fázích: odpočet, vzlet, stoupání, let setrvačností, apogeum, sestup a~přistání. Pro každou fázi jsou definovány fyzikální vztahy ovlivňující výšku, rychlost, teplotu, tlak a~stav baterie. Gyro data obsahují simulovaný šum pro realističnost. Simulátor podporuje také simulaci výpadku signálu (blackout) v~konfigurovatelném časovém okně. Konfigurovatelné parametry zahrnují frekvenci vysílání, identifikátor session, délku a~pozici blackoutu a~volbu letového profilu.
+
+Parametry simulátoru se průběžně upravují s~cílem co nejvěrněji modelovat reálný let. Do budoucna je počítáno s~možností nahradit simulovaná data záznamy ze skutečných letů, čímž by simulátor sloužil jako nástroj pro ověřování telemetrického systému proti reálným podmínkám.
+
+\section{Kontejnerizace a nasazení}
+
+\subsection{Docker Compose}
+
+Docker Compose konfigurace definuje osm služeb sdílejících společnou virtuální síť \texttt{crs-network}. V~rámci této sítě se kontejnery vzájemně adresují svými názvy služeb jako hostitelskými jmény -- například API server se připojí k~databázi na adrese \texttt{postgres:5432}, aniž by potřeboval znát její IP adresu. Navenek jsou služby zpřístupněny prostřednictvím mapování portů na hostitelský systém. Konfigurace zahrnuje následující služby:
+
+\begin{itemize}
+    \item \textbf{PostgreSQL} -- relační databáze s~datovým svazkem pro perzistenci.
+    \item \textbf{pgAdmin} -- webové rozhraní pro správu databáze.
+    \item \textbf{InfluxDB} -- časová databáze pro telemetrii s~automatickou inicializací bucketu.
+    \item \textbf{Mosquitto} -- MQTT broker s~vlastní konfigurací pro WebSocket listener na portu 9001.
+    \item \textbf{Telemetry} -- Go server (multi-stage build, statický binární soubor).
+    \item \textbf{MailHog} -- testovací SMTP server zachytávající e-maily.
+    \item \textbf{API} -- Hono backend s~bind mount zdrojových kódů pro hot-reload.
+    \item \textbf{Web} -- Next.js frontend s~bind mount pro hot-reload.
+\end{itemize}
+
+Kritické služby (PostgreSQL, InfluxDB, Mosquitto) definují healthchecky. Závislé služby (API, telemetry) se spustí až po splnění podmínky \texttt{service\_healthy}, čímž se předchází chybám při startu kvůli nedostupné databázi.
+
+\subsection{Dockerfiles}
+
+Každá aplikace má vlastní Dockerfile optimalizovaný pro daný runtime. Všechny obrazy jsou postaveny na distribuci \textbf{Alpine Linux} -- minimalistickém linuxovém systému o~velikosti přibližně 5\,MB.
+
+\begin{itemize}
+    \item \textbf{API:} Obraz \texttt{node:alpine} (Node.js na Alpine). Při startu kontejner nejprve synchronizuje schéma s~databází (\texttt{db:push}) a~poté spustí server přes \texttt{tsx}.
+    \item \textbf{Web:} Obraz \texttt{node:alpine}, dvoustupňový build -- první stupeň sestaví Next.js aplikaci, druhý obsahuje pouze produkční artefakty bez vývojových závislostí.
+    \item \textbf{Telemetry:} Multi-stage Go build s~\texttt{CGO\_ENABLED=0} pro produkci statického binárního souboru bez závislosti na C~knihovnách. Výsledný obraz běží na holém \texttt{alpine} obrazu, protože Go binárka nepotřebuje žádný runtime.
+\end{itemize}
+
+\subsection{Proměnné prostředí}
+
+Konfigurace všech služeb (připojovací řetězce k~databázím, tajné klíče, adresy brokerů) je oddělena od zdrojového kódu prostřednictvím proměnných prostředí. Každá aplikace definuje soubor \texttt{.env.example} s~výčtem potřebných proměnných, který slouží jako dokumentace pro nasazení. Citlivé hodnoty (hesla, tokeny) se tak nedostávají do verzovacího systému.
+
+Specifickým implementačním detailem frameworku Next.js je rozlišení proměnných s~prefixem \texttt{NEXT\_PUBLIC\_}, které jsou vloženy do klientského JavaScriptu při sestavení aplikace. Jejich hodnoty se fixují v~okamžiku buildu, nikoli při spuštění -- změna adresy API proto vyžaduje nové sestavení frontendu.

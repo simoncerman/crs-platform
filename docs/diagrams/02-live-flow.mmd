@@ -1,0 +1,20 @@
+sequenceDiagram
+    participant S as Simulátor
+    participant M as Mosquitto Broker
+    participant G as Go Server
+    participant I as InfluxDB
+    participant B as Prohlížeč
+
+    Note over S,B: Kanál A (Go WebSocket) + zápis do InfluxDB
+    S->>M: MQTT publish<br/>{session}/rocket/{device}/telemetry/{type}
+    M->>G: MQTT message callback
+    par Paralelní zpracování
+        G->>I: Batch write (500 bodů / 100ms)
+        G->>B: WebSocket batch (16ms interval)
+    end
+
+    Note over S,B: Kanál B (Přímý MQTT)
+    S->>M: MQTT publish
+    M->>B: MQTT-over-WebSocket<br/>(mqtt.js v prohlížeči)
+
+    Note over B: TelemetryProvider<br/>sjednocuje oba kanály

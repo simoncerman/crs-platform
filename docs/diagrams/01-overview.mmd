@@ -1,0 +1,62 @@
+graph TB
+    subgraph EXT["Fyzický svět"]
+        SIM["Simulátor / Raketa<br/><i>MQTT publish</i>"]
+    end
+
+    subgraph RAILWAY["Railway Cloud"]
+        subgraph BROKER["Mosquitto MQTT Broker"]
+            MQTT_TCP["TCP :1883"]
+            MQTT_WS["WebSocket :9001"]
+        end
+
+        subgraph GOSERVER["Go Telemetry Server :8082"]
+            MQTTSUB["MQTT Subscriber"]
+            WSHUB["WebSocket Hub<br/><i>16ms micro-batching</i>"]
+            INFLUXW["InfluxDB Writer<br/><i>batch 500 / flush 100ms</i>"]
+            RESTAPI["REST API<br/><i>chi router</i>"]
+        end
+
+        INFLUX[("InfluxDB 2.7<br/>bucket: telemetry<br/>retence: 52 týdnů")]
+
+        subgraph WEB["Next.js 16 Web App :3000"]
+            LIVE["Živá telemetrie<br/>/telemetrie/live/[id]"]
+            PLAYBACK["Přehrávání záznamu<br/>/telemetrie/playback/[id]"]
+            OVERVIEW["Přehled sessions<br/>/telemetrie"]
+            ADMIN["Admin panel<br/>/admin/telemetry"]
+        end
+    end
+
+    subgraph BROWSER["Prohlížeč (libovolný počítač)"]
+        MQTTJS["mqtt.js klient<br/><i>Kanál B — přímý MQTT</i>"]
+        WSNAT["WebSocket klient<br/><i>Kanál A — Go WS</i>"]
+        UI["React UI<br/>TelemetryProvider"]
+    end
+
+    SIM -->|"MQTT TCP / WSS<br/>QoS 0"| MQTT_TCP
+    MQTT_TCP -->|"subscribe<br/>+/rocket/+/telemetry/#"| MQTTSUB
+    MQTTSUB --> INFLUXW
+    MQTTSUB --> WSHUB
+    INFLUXW -->|"Line Protocol<br/>HTTP batch write"| INFLUX
+    RESTAPI -->|"Flux query"| INFLUX
+    MQTT_WS <-->|"wss:// (TLS terminated)"| MQTTJS
+    MQTTJS --> UI
+    WSHUB <-->|"wss:// (binary batches)"| WSNAT
+    WSNAT --> UI
+    RESTAPI -->|"JSON"| PLAYBACK
+    RESTAPI -->|"JSON"| OVERVIEW
+    RESTAPI -->|"JSON"| ADMIN
+    UI --> LIVE
+
+    classDef broker fill:#e74c3c,stroke:#c0392b,color:#fff
+    classDef goserver fill:#2ecc71,stroke:#27ae60,color:#fff
+    classDef influx fill:#9b59b6,stroke:#8e44ad,color:#fff
+    classDef web fill:#3498db,stroke:#2980b9,color:#fff
+    classDef browser fill:#f39c12,stroke:#e67e22,color:#fff
+    classDef ext fill:#95a5a6,stroke:#7f8c8d,color:#fff
+
+    class MQTT_TCP,MQTT_WS broker
+    class MQTTSUB,WSHUB,INFLUXW,RESTAPI goserver
+    class INFLUX influx
+    class LIVE,PLAYBACK,OVERVIEW,ADMIN web
+    class MQTTJS,WSNAT,UI browser
+    class SIM ext

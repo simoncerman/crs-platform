@@ -1,0 +1,48 @@
+\chapter{Závěry a~doporučení}
+\label{chap:zaver}
+
+Cílem této bakalářské práce bylo vytvořit webovou platformu pro Czech Rocket Society, která pokryje prezentační potřeby spolku, zjednoduší správu obsahu a~poskytne nástroje pro vizualizaci telemetrických dat v~reálném čase z~raketových letů. Hlavní cíl práce byl splněn -- výsledkem je funkční aplikace připravená k~nasazení v~kontejnerizovaném prostředí, postavená na~moderních technologiích s~důrazem na~rozšiřitelnost.
+
+\section{Splnění cílů}
+
+Tabulka~\ref{tab:cile} shrnuje splnění dílčích cílů definovaných v~kapitole~2.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{p{5.5cm}lp{5.5cm}}
+\hline
+\textbf{Dílčí cíl} & \textbf{Stav} & \textbf{Komentář} \\
+\hline
+Veřejný web s~moderním designem & splněno & čtrnáct veřejných stránek, SSR, české URL, responzivní design \\
+Administrační systém pro správu obsahu & splněno & správa článků, událostí, projektů, členů, partnerů a~médií, rich-text editor \\
+Interaktivní náborový formulář & splněno & šestikrokový formulář, průběžné ukládání, e-mailové notifikace, administrační workflow \\
+Telemetrický systém & splněno & MQTT + Go server, WebSocket, vizualizace v~reálném čase, přehrávání historie, simulátor \\
+Autentizace a~zabezpečení platformy & splněno & JWT, bcrypt, NextAuth, ochrana API \\
+Testování a~ověření funkčnosti & splněno & 112~automatizovaných testů (unit + integrační) doplněných manuálním testováním \\
+\hline
+\end{tabular}
+\caption{Přehled splnění dílčích cílů práce.}
+\label{tab:cile}
+\end{table}
+
+K~dosažení těchto cílů byla provedena analýza požadavků spolku, zvolen technologický stack (Next.js, Hono, Go, PostgreSQL, InfluxDB), navržena architektura tří~aplikací v~monorepo struktuře a~celé řešení kontejnerizováno pomocí Docker Compose s~osmi~službami.
+
+\section{Doporučení pro budoucí rozvoj}
+
+Platforma je navržena jako základ, na~kterém mohou další členové spolku stavět. Následující oblasti představují přirozená rozšíření:
+
+\begin{sloppypar}
+\begin{itemize}
+    \item \textbf{Přechod do~produkce a~automatizace nasazení} -- zavedení CI/CD pipeline (GitHub Actions) pro automatické spouštění testů a~nasazení na~staging i~produkční infrastrukturu s~vlastní doménou a~HTTPS. Architektura je na~tento krok připravena díky kontejnerizaci.
+    \item \textbf{Rozšíření testovací sady o~E2E testy} -- doplnění end-to-end testů pomocí Playwright, které by pokryly klíčové uživatelské scénáře (přihlášení, vytvoření článku, průchod náborem) a~doplnily stávající unit a~integrační testy.
+    \item \textbf{Vícejazyčnost} -- implementace internacionalizace (i18n) pro anglickou verzi webu, která by umožnila oslovit zahraniční partnery a~účastníky mezinárodních soutěží.
+    \item \textbf{Rozšíření telemetrie} -- přidání 3D vizualizace trajektorie letu, podpora dalších typů senzorů a~porovnávání dat z~více startů v~jednom rozhraní.
+    \item \textbf{Mobilní optimalizace} -- převod webové aplikace na~Progressive Web App s~režimem bez připojení pro použití přímo na~startovacím místě s~omezeným internetovým spojením.
+    \item \textbf{Šifrování osobních údajů.} V~současné implementaci jsou hesla uživatelů bezpečně hashována algoritmem bcrypt, osobní údaje uchazečů v~náborových přihláškách (jméno, e-mail, telefon, motivace) jsou však v~databázi uloženy jako prostý text. Vzhledem k~malému rozsahu spolku a~lokálnímu provozu databáze se zatím nejedná o~kritickou slabinu. Jakmile však platforma začne pracovat s~větším objemem citlivých dat, bude vhodné zavést šifrování těchto údajů na~aplikační úrovni a~znepřístupnit je v~co~nejvyšší míře vně systému.
+    \item \textbf{Rozšíření telemetrie pro provoz na~startovacím místě} -- zahrnuje provozování lokálního MQTT brokeru přímo v~síti startovacího místa (architektura je na~to připravena, stačí změnit adresu brokeru v~konfiguraci), rozšíření o~administrátorský dashboard chráněný autentizací zobrazující interní stavové informace (stav připojení pozemní stanice, RSSI, diagnostika subsystémů) a~využití obousměrné povahy MQTT pro vzdálené řízení testů z~bezpečné vzdálenosti (přechody mezi stavy, aktivace ventilů, řízení motoru). Toto rozšíření by vyžadovalo zavedení robustní autorizační vrstvy a~fyzických bezpečnostních pojistek.
+    \item \textbf{Automatizovaný onboarding nově přijatých členů} -- napojení dokončeného náborového procesu na~externí systémy spolku (Google Workspace, Notion, Slack) prostřednictvím jejich API, čímž by se vytvoření nového členského účtu ve~všech spolkových platformách spojilo do~jednoho kroku.
+\end{itemize}
+\end{sloppypar}
+
+Díky monorepo architektuře, typové bezpečnosti napříč celým systémem a~kontejnerizovanému prostředí je platforma připravena na~postupné rozšiřování bez nutnosti zásadních architekturních změn.

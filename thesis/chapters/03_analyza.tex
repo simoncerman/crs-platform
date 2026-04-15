@@ -1,0 +1,228 @@
+\chapter{Teoretická část a~analýza}
+\label{chap:analyza}
+
+\section{Analýza domény}
+Aplikace si klade za cíl naplnit potřeby raketového spolku v~oblasti prezentace činností, organizace členů a~sdílení informací o~raketových projektech. Toho dosáhne zefektivněním stávajících procesů, zjednodušením administrace a~zavedením nových nástrojů pro zajištění bezpečnosti při činnostech spolku.
+
+Využívají ji především členové spolku a~zájemci procházející náborovým procesem, ale také veřejnost a~soukromé firmy se zájmem o~kosmonautiku. Aplikace tak slouží i~jako prostředek popularizace oboru v~České republice.
+
+\subsection{Kosmonautika a raketový průmysl}
+Raketový průmysl na území České republiky má dlouhou tradici sahající od vojenských programů v~období studené války~\cite{lehky2017rakety} přes civilní raketové modelářství pod záštitou organizace SVAZARM~\cite{kosmo2004modelarstvi} až po současné členství v~Evropské kosmické agentuře (ESA), ke kterému došlo v~roce 2008~\cite{mzv2024space}. Česká republika si dnes buduje pozici aktivního hráče v~evropském kosmickém sektoru, jak dokládá i~Národní kosmický plán na léta 2020--2025~\cite{czechspace2020plan}. S~rostoucím zájmem o~kosmonautiku roste i~potřeba popularizace oboru a~zapojení mladé generace.
+
+\subsection{Czech Rocket Society}
+Czech Rocket Society je studentský spolek stojící na pomezí akademického prostředí a~praktického inženýrství, který svou činností doplňuje průmyslové i~vzdělávací iniciativy v~oblasti kosmonautiky~\cite{crs2024onas}. Cílem této práce je poskytnout spolku nástroj pro efektivnější prezentaci projektů, oslovování nových členů a~veřejnosti~\cite{crs2024web}.
+
+
+\subsection{Požadavky na webovou platformu}
+
+Z analýzy potřeb spolku vyplynulo několik cílových skupin, pro které musí platforma fungovat. Primárně jde o~\textbf{veřejnost}, která hledá informace o~činnosti spolku, dále o~\textbf{potenciální členy}, kteří procházejí náborovým procesem, \textbf{stávající členy} spolku a~v~neposlední řadě \textbf{administrátory}, kteří spravují obsah a~řídí interní procesy.
+
+Z hlediska funkčních požadavků platforma musí umožňovat správu a~publikaci obsahu -- článků, událostí, projektů a~informací o~členech a~partnerech. Důležitou součástí je náborový formulář s~možností průběžného ukládání rozpracovaných přihlášek. Specifickým požadavkem, který odlišuje tuto platformu od běžných prezentačních webů, je modul pro přenášení a~vizualizaci telemetrických dat z~raketových letů v~reálném čase.
+
+Mezi nefunkční požadavky patří responzivní design pro mobilní zařízení a~optimalizace pro vyhledávače (SEO, Search Engine Optimization). Pro zpracování telemetrických dat je nutný dostatečný výkon s~nízkou latencí. Posledním klíčovým požadavkem je rozšiřitelnost platformy umožňující budoucí rozvoj dalšími členy spolku.
+
+\subsection{Telemetrie raketových letů}
+Telemetrie představuje soubor dat naměřených senzory rakety v~průběhu letu~\cite{lacek2019rocket}. Tato data jsou klíčová jak pro zpětné vyhodnocení letu, tak pro živý přenos informací operujícímu týmu na~zemi~\cite{nasa2023srhb}.
+
+Telemetrická data mohou zahrnovat širokou škálu měřených veličin -- výšku, zrychlení, polohu pomocí GPS (Global Positioning System), orientaci z~gyroskopu či stav baterie. V~případě raket s~kapalinovým pohonem přibývají další údaje o~stavu nádrže, tlaku paliva a~poloze ventilů~\cite{lacek2019rocket}.
+
+Pozemní tým potřebuje mít k~těmto datům přístup v~reálném čase s~co nejnižší latencí, aby byl schopen včas reagovat na~případné anomálie -- například aktivovat záchranný systém nebo upozornit okolí na~hrozící nebezpečí~\cite{kaknjo2019lowcost}. Bezpečnostní pravidla pro provoz amatérských raket, jako je například kodex Tripoli Rocketry Association~\cite{tripoli2025safety}, kladou důraz na~kontrolu letu i~na~vyhrazení vzdušného prostoru, který je v~České republice regulován Úřadem pro civilní letectví~\cite{caa2023lkr10}. Samotný přístup k~surovým datům však nestačí; data musí být přehledně zpracována a~vizualizována tak, aby je operátor dokázal rychle vyhodnotit a~na~jejich základě rozhodnout~\cite{nasa2023srhb}.
+
+
+\section{Přehled existujících řešení}
+
+\subsection{Stávající telemetrické řešení spolku}
+Před vznikem této práce spolek disponoval jednoduchým telemetrickým systémem postaveným na dvou PHP (PHP: Hypertext Preprocessor) skriptech a~vzdálené MySQL databázi. Architektura fungovala následovně: pozemní stanice při příjmu dat z~rakety odeslala HTTP (Hypertext Transfer Protocol) POST požadavek na serverový skript, který přijatá data zapsal do jediného záznamu v~databázové tabulce. Klientská zařízení poté opakovaně a~v~co nejkratších intervalech četla tento záznam pomocí druhého skriptu, který vracel poslední vložený řádek.
+
+Architektura tohoto řešení je znázorněna na obrázku~\ref{fig:old-telemetry}.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+    node distance=2.0cm and 2.2cm,
+    box/.style={rectangle, draw, rounded corners, minimum height=1.1cm, minimum width=2.6cm, align=center, font=\small},
+    arrow/.style={-{Stealth[length=3mm]}, thick},
+    label/.style={font=\footnotesize, fill=white, inner sep=2pt}
+]
+    % Nodes - top row
+    \node[box] (rocket) {Raketa\\{\footnotesize (senzory)}};
+    \node[box, right=of rocket] (ground) {Pozemní\\stanice};
+    \node[box, right=of ground] (php) {PHP skript\\{\footnotesize (webový server)}};
+
+    % Nodes - bottom row
+    \node[box, below=2.2cm of ground] (client) {Klientská\\zařízení};
+    \node[box, below=2.2cm of php] (db) {MySQL\\databáze};
+
+    % Write flow (top + right side)
+    \draw[arrow, dashed] (rocket) -- node[label, above=8pt] {rádiový signál} (ground);
+    \draw[arrow] (ground) -- node[label, above=8pt] {HTTP POST} (php);
+    \draw[arrow] ($(php.south)+(0.25,0)$) -- node[label, right] {INSERT} ($(db.north)+(0.25,0)$);
+
+    % Read flow (bottom + left side)
+    \draw[arrow] (php) -- node[label, above, align=center] {HTTP GET\\ {\footnotesize (polling)}} (client);
+    \draw[arrow] ($(db.north)+(-0.25,0)$) -- node[label, left] {SELECT} ($(php.south)+(-0.25,0)$);
+\end{tikzpicture}
+\caption{Architektura stávajícího telemetrického řešení spolku.}
+\label{fig:old-telemetry}
+\end{figure}
+
+Toto řešení trpělo několika zásadními nedostatky. Přenos dat fungoval na principu pollingu -- klient musel neustále odesílat HTTP dotazy na server, aby zjistil, zda jsou k~dispozici nová data. Každý takový dotaz znamenal navázání nového připojení k~databázi, provedení SQL (Structured Query Language) dotazu a~uzavření spojení, což představovalo zbytečnou zátěž jak na server, tak na databázi. Latence celého řetězce závisela na frekvenci dotazování a~na odezvě vzdálené databáze.
+
+Systém rovněž neuchovával historii měření a~neumožňoval zpětnou analýzu letu. Z~hlediska bezpečnosti obsahoval přístupové údaje k~databázi přímo ve zdrojovém kódu a~autentizace probíhala pomocí statického hesla v~HTTP hlavičce.
+
+Tyto zkušenosti z~praxe přímo motivovaly návrh nového řešení postaveného na moderních technologiích, které jsou popsány v~následujících kapitolách.
+
+\subsection{Stávající webová prezentace spolku}
+Současný web spolku\footnote{\url{https://czechrockets.com}} je postaven jako sada statických HTML (Hypertext Markup Language) stránek. Obsahuje základní sekce -- úvodní stránku, představení spolku a~správní rady, přehled projektů, média, partnery a~kontaktní informace~\cite{crs2024web}. Úvodní stránka stávajícího webu je zachycena na obrázku~\ref{fig:crs-current-web}. Design je čistý a~přehledný, stránky však postrádají jakoukoli dynamičnost -- veškerý obsah je pevně zapsán přímo ve zdrojovém kódu a~jeho aktualizace vyžaduje ruční úpravu HTML souborů a~opětovné nasazení.
+
+To v~praxi znamená, že přidání nového článku, úprava informací o~členech rady nebo aktualizace projektových stránek je vázána na člena spolku se znalostí webového vývoje. Obsah webu tak postupně zastarává a~neodpovídá aktuálnímu stavu činností spolku.
+
+Náborový proces je řešen externím formulářem na platformě JotForm, na který odkazuje stránka pro zájemce. Tato stránka sice obsahuje přehled jednotlivých odborů a~odpovědi na~časté dotazy, samotný formulář je však oddělený od~zbytku webu a~neumožňuje například průběžné ukládání rozpracované přihlášky ani správu přijatých žádostí.
+
+Nové řešení si klade za cíl tyto nedostatky odstranit -- zavést systém správy obsahu umožňující aktualizaci bez programátorských znalostí, implementovat interaktivní náborový formulář s~možností průběžného ukládání a~správy přihlášek, poskytnout přehled členů a~partnerů spolku a~celkově nabídnout moderní design, který spolek vhodně reprezentuje.
+
+Podrobné srovnání stávajícího a~nového řešení z~hlediska výkonu a~funkcionality je provedeno v~kapitole věnované testování.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=\textwidth]{crs-current-web.png}
+\caption{Úvodní stránka stávajícího webu Czech Rocket Society~\cite{crs2024web}.}
+\label{fig:crs-current-web}
+\end{figure}
+
+
+\section{Webové technologie}
+
+\subsection{Architektura webových aplikací}
+
+\begin{sloppypar}
+Moderní webové aplikace jsou typicky postaveny na~modelu \textbf{klient-server}, kde frontend komunikuje s~backendem prostřednictvím REST (Representational State Transfer) API~\cite{fielding2000rest}. Přístup \textbf{API-first} striktně odděluje obě části systému, což umožňuje jejich nezávislý vývoj, testování a~případnou integraci s~dalšími klienty.
+\end{sloppypar}
+
+Při návrhu webové aplikace je zásadní volba způsobu vykreslování. \textbf{SPA} (Single Page Application) přenáší vykreslování na klienta, což poskytuje plynulou interakci, ale zhoršuje úvodní načtení a~SEO. \textbf{SSR} (Server-Side Rendering) generuje HTML na serveru při každém požadavku, čímž zlepšuje výkon i~indexaci. \textbf{SSG} (Static Site Generation) generuje stránky při sestavení aplikace a~\textbf{ISR} (Incremental Static Regeneration) kombinuje SSG s~průběžnou aktualizací~\cite{verma2024ssr, jartarghar2022nextjs}.
+
+\begin{sloppypar}
+Pro projekty skládající se z~více souvisejících částí (frontend, backend, sdílené knihovny) se nabízí organizace do~\textbf{monorepo} -- jediného repozitáře obsahujícího všechny komponenty systému. Tento přístup, prověřený organizacemi jako Google~\cite{potvin2016monorepo}, přináší jednotnou správu závislostí a~atomické změny napříč celým systémem.
+\end{sloppypar}
+
+\subsection{Frontend -- React a~Next.js}
+
+\textbf{React} je knihovna pro tvorbu uživatelských rozhraní vyvíjená společností Meta a~open-source komunitou~\cite{react2024docs, elrom2021react}. Rozhraní je deklarativně složeno ze~znovupoužitelných komponent, které spravují vlastní stav. React efektivně aktualizuje DOM prostřednictvím \textbf{virtuálního DOM} (Document Object Model) -- při změně stavu porovná nový virtuální strom s~předchozím a~aplikuje pouze minimální změny.
+
+\textbf{Next.js} rozšiřuje React o~serverové vykreslování a~pokročilé routování~\cite{nextjs2024docs}. V~architektuře App Router zavádí koncept \textbf{serverových komponent}, které se vykreslují na serveru bez odesílání JavaScriptu klientovi, a~\textbf{klientských komponent} pro interaktivní části rozhraní~\cite{pati2025nextjs}. Díky tomu je vhodný pro aplikace kombinující veřejný obsah (SSR pro SEO) s~administračním rozhraním (SPA)~\cite{thakkar2020ssr}.
+
+\subsection{Backend -- Node.js a~Hono}
+
+\textbf{Node.js} je běhové prostředí pro JavaScript s~událostmi řízenou architekturou a~neblokujícím I/O (Input/Output)~\cite{tilkov2010nodejs}. Hlavní smyčka událostí (event loop) běží v~jediném vlákně, zatímco blokující vstupně-výstupní operace jsou delegovány na~pracovní thread pool knihovny libuv a~po~dokončení je zavolána funkce zpětného volání~\cite{nodejs2024eventloop}. Díky tomu Node.js efektivně zvládá velké množství souběžných připojení.
+
+\begin{sloppypar}
+\textbf{Hono}\footnote{\url{https://hono.dev/}} je lehký webový framework navržený pro TypeScript a~webové standardy~\cite{hono2024docs}. Hono využívá Web Standard API (Request, Response), díky čemuž není vázán na~konkrétní běhové prostředí. Framework používá middleware pattern a~oproti Express nabízí nativní podporu TypeScriptu a~integraci s~validační knihovnou Zod~\cite{hono2024github}.
+\end{sloppypar}
+
+\subsection{TypeScript}
+
+\textbf{TypeScript} je nadmnožina JavaScriptu se statickým typovým systémem~\cite{typescript2024docs}. Typy jsou kontrolovány při kompilaci a~výstupem je čistý JavaScript. Statické typování prokazatelně snižuje počet chyb v~kódu ještě před nasazením~\cite{gao2017typescript}. V~monorepo architektuře TypeScript umožňuje definovat datové struktury konzistentně napříč celým systémem a~snižuje tak riziko nekonzistence mezi frontendem a~backendem. Pro validaci vstupních dat na straně API je použita knihovna \textbf{Zod}, která z~validačního schématu automaticky odvozuje TypeScriptový typ -- schéma tak slouží jako jediný zdroj pravdy pro strukturu i~validaci přijímaných dat.
+
+\subsection{Go jako jazyk pro výkonnostně kritické služby}
+
+\textbf{Go} je kompilovaný jazyk od Googlu, který produkuje jediný binární soubor bez externích závislostí~\cite{donovan2015go}. Hlavní předností je nativní podpora \textbf{konkurenčního programování} prostřednictvím goroutin -- lehkých vláken spotřebovávajících řádově kilobajty paměti -- a~kanálů pro bezpečnou komunikaci mezi nimi~\cite{tu2019go, gospec2024}. Tento model je vhodný pro služby zpracovávající vysokofrekvenční datové toky, kde je vyžadována nízká latence -- například při příjmu telemetrických dat, jejich perzistenci a~současné distribuci klientům.
+
+Pro zpracování vysokofrekvenčních telemetrických dat je výhodný předvídatelný paměťový model a~lehká konkurenční primitiva, díky kterým lze snadno paralelizovat příjem, perzistenci a~distribuci dat bez složité synchronizace.
+
+\section{Databázové systémy}
+
+\subsection{Relační databáze -- PostgreSQL}
+
+Relační databáze ukládají data do~tabulek propojených definovanými vztahy. Tento model, formálně popsaný Coddem~\cite{codd1970relational}, zajišťuje konzistenci dat prostřednictvím vlastností ACID (Atomicity, Consistency, Isolation, Durability) a~umožňuje jejich efektivní dotazování jazykem~SQL.
+
+\textbf{PostgreSQL} je objektově-relační databázový systém, jehož počátky sahají k~projektu POSTGRES na UC Berkeley~\cite{stonebraker1986postgres}. Oproti alternativám jako MySQL nebo SQLite nabízí PostgreSQL pokročilé datové typy (JSONB -- JSON Binary, UUID -- Universally Unique Identifier, vlastní výčtové typy), silnou podporu standardu SQL a~prověřenou škálovatelnost~\cite{postgresql2024docs}. Kombinace relačního modelu s~možností ukládat polostrukturovaná data v~JSONB sloupcích je výhodná pro aplikace, kde většina entit má pevnou strukturu, ale některé atributy vyžadují flexibilitu.
+
+\subsection{Časové databáze -- InfluxDB}
+
+Telemetrická data z~raketových letů mají charakter \textbf{časových řad} -- sekvencí měření indexovaných časovým razítkem, kde nová data neustále přibývají a~u~starších záznamů roste význam agregovaných trendů oproti jednotlivým vzorkům~\cite{kaknjo2019lowcost}. Relační databáze nejsou pro tento typ zátěže optimalizovány, protože standardní B-tree indexy a~řádkové úložiště nedosahují potřebného výkonu při vysoké frekvenci zápisů~\cite{grzesik2020tsdb}.
+
+\textbf{InfluxDB} je specializovaná časová databáze navržená pro vysoký průchod zápisů a~efektivní agregační dotazy nad časovými rozsahy~\cite{influxdb2024docs}. Využívá vlastní úložný engine TSM (Time-Structured Merge Tree) optimalizovaný pro sekvenční zápis a~nabízí vestavěné mechanismy jako retenční politiky pro automatický životní cyklus dat a~dávkový zápis pro minimalizaci I/O operací. Pro systémy zpracovávající vysokofrekvenční senzorová data s~požadavkem na nízkou latenci zápisu představuje časová databáze vhodnější volbu než ukládání časových řad do relační databáze.
+
+\subsection{ORM -- Drizzle}
+
+\textbf{Object-Relational Mapping} (ORM) je technika, která mapuje objekty programovacího jazyka na tabulky relační databáze a~odstraňuje tak nutnost psát SQL dotazy ručně~\cite{torres2017orm}. Hlavní výhodou je zvýšení produktivity a~snížení rizika chyb při zachování typové bezpečnosti, nevýhodou může být ztráta kontroly nad generovanými dotazy.
+
+\textbf{Drizzle ORM} volí přístup schema-as-code -- databázové schéma je definováno přímo v~TypeScriptu, z~čehož se automaticky odvozují jak typové definice, tak databázové migrace~\cite{drizzle2024docs}. Oproti alternativám jako Prisma, která používá vlastní definiční jazyk, Drizzle zůstává blízko~SQL syntaxi, což usnadňuje ladění dotazů a~snižuje abstrakční bariéru. Migrace jsou generovány jako čisté SQL soubory, které lze verzovat společně se~zdrojovým kódem.
+
+\section{Autentizace a bezpečnost}
+
+\subsection{JWT -- JSON Web Token}
+
+Webová API postavená na~principu REST jsou ze~své podstaty bezstavová -- server neuchovává informaci o~přihlášeném uživateli mezi jednotlivými požadavky~\cite{fielding2000rest}. Pro autentizaci je proto potřeba mechanismus, který umožní ověřit identitu uživatele bez nutnosti uchovávat stav sezení na~serveru.
+
+\textbf{JSON Web Token} (JWT) je otevřený standard definovaný v~RFC (Request for Comments)~7519~\cite{rfc7519jwt}. Token se skládá ze~tří částí: hlavičky s~algoritmem podpisu, datové části -- tzv. payload (datový obsah zprávy) -- s~tvrzeními o~uživateli (identifikátor, role, doba expirace) a~digitálního podpisu. Podpis je vytvořen kódem HMAC (Hash-based Message Authentication Code), který kombinuje hlavičku a~payload s~tajným klíčem uloženým na~serveru, a~je počítán prostřednictvím hashovací funkce (typicky SHA-256). Standard podporuje i~asymetrické algoritmy podpisu (RSA, ECDSA), jejichž volba je signalizována v~hlavičce tokenu. Při ověření server stejným způsobem spočítá podpis znovu a~porovná jej s~podpisem v~tokenu, čímž ověří, že obsah nebyl pozměněn, aniž by potřeboval dotazovat databázi nebo uchovávat stav sezení. To je pro API-first architekturu výhodnější než klasické serverové sessions vyžadující sdílené úložiště. Nevýhodou je, že vydaný token nelze jednoduše revokovat před vypršením jeho platnosti. Je proto nutné dodržovat bezpečnostní doporučení -- zejména ověřování algoritmu podpisu, nastavení krátké expirace a~přenos výhradně přes HTTPS (Hypertext Transfer Protocol Secure)~\cite{rfc8725jwt}.
+
+\subsection{Hashování hesel}
+
+Hesla uživatelů nesmí být ukládána v~čitelné podobě ani šifrována reverzibilním algoritmem -- v~případě úniku databáze by bylo možné je rekonstruovat. Místo toho se používá jednosměrné \textbf{hashování}, při kterém z~hesla vznikne otisk fixní délky, ze kterého nelze zpětně odvodit původní vstup~\cite{owasp2024password}.
+
+Mezi osvědčené hashovací algoritmy patří \textbf{bcrypt}, navržený Provosem a~Mazièresem specificky pro ukládání hesel~\cite{provos1999bcrypt}. Klíčovou vlastností bcryptu je nastavitelná výpočetní náročnost (cost factor) -- s~rostoucím výkonem hardwaru lze náročnost zvýšit, čímž se zachovává odolnost proti útokům hrubou silou. Ke~každému heslu se automaticky generuje náhodná sůl, která zabraňuje použití předpočítaných tabulek~\cite{owasp2024password}. Současná doporučení OWASP uvádějí jako primární volbu pro nově vyvíjené aplikace algoritmus Argon2id, bcrypt však zůstává široce používán pro svou stabilitu a~dostupnost knihoven.
+
+\subsection{RBAC -- řízení přístupu na~základě rolí}
+
+\textbf{Role-Based Access Control} (RBAC) je model řízení přístupu, ve kterém jsou oprávnění přiřazena rolím a~uživatelům jsou přiděleny odpovídající role~\cite{sandhu1996rbac}. Oproti individuálnímu přidělování oprávnění každému uživateli tento přístup zjednodušuje administraci a~snižuje riziko chybné konfigurace. V~jednodušších aplikacích pro správu obsahu typicky postačují dvě role -- administrátor s~plným přístupem ke správě systému a~editor s~oprávněním vytvářet a~upravovat obsah.
+
+\section{Real-time komunikace}
+
+\subsection{MQTT protokol}
+
+\textbf{MQTT} (Message Queuing Telemetry Transport) je lehký messaging protokol založený na vzoru \textbf{publish/subscribe}, standardizovaný organizací OASIS~\cite{mqtt2014oasis}. Protokol byl navržen pro nespolehlivé sítě s~omezenou šířkou pásma a~nízkovýkonná zařízení, což jej činí vhodným pro aplikace v~oblasti internetu věcí (IoT) a~telemetrie~\cite{mishra2020mqtt}.
+
+Komunikace v~MQTT probíhá prostřednictvím centrálního \textbf{brokeru}, který zprostředkovává výměnu zpráv mezi producenty (publishers) a~konzumenty (subscribers). Producent odesílá zprávy na pojmenovaný \textbf{topic} (téma), broker je přijme a~doručí všem klientům, kteří se k~danému tématu přihlásili. Klienti se tak nemusí vzájemně znát ani být současně připojeni -- broker zajišťuje oddělení v~čase i~prostoru~\cite{quincozes2019mqtt}.
+
+Protokol definuje tři úrovně kvality doručení (\textbf{QoS}), které umožňují přizpůsobit spolehlivost přenosu požadavkům aplikace~\cite{mqtt2014oasis}. Pro telemetrická data, kde je důležitější nízká latence než garance doručení každého vzorku, se typicky volí nejnižší úroveň~\cite{kegenbekov2022mqtt}.
+
+\begin{sloppypar}
+Mezi nejrozšířenější open-source implementace MQTT brokeru patří \textbf{Mosquitto}~\cite{light2017mosquitto}.
+\end{sloppypar}
+
+\subsection{WebSocket}
+
+\begin{sloppypar}
+\textbf{WebSocket} je komunikační protokol definovaný v~RFC~6455, který umožňuje \textbf{obousměrnou} (full-duplex) komunikaci mezi klientem a~serverem přes jediné TCP (Transmission Control Protocol) spojení~\cite{rfc6455websocket}. Na~rozdíl od~tradičního HTTP, kde klient musí opakovaně posílat požadavky (polling) pro zjištění nových dat, WebSocket umožňuje serveru aktivně zasílat data klientovi v~okamžiku jejich vzniku (push model).
+\end{sloppypar}
+
+Spojení se navazuje prostřednictvím \textbf{HTTP Upgrade handshake} -- klient odešle standardní HTTP požadavek s~hlavičkou \texttt{Upgrade: websocket} a~po úspěšné odpovědi serveru (stavový kód 101) se spojení přepne na WebSocket protokol~\cite{rfc6455websocket}. Od tohoto okamžiku mohou obě strany nezávisle odesílat zprávy ve formě rámců (frames), které obsahují minimální režijní hlavičku o~velikosti 2--14~bajtů.
+
+Alternativou k~WebSocket je technologie \textbf{Server-Sent Events} (SSE), která rovněž umožňuje push komunikaci, avšak pouze jednosměrně -- od serveru ke klientovi. SSE využívá standardní HTTP spojení a~je jednodušší na implementaci, ale neumožňuje obousměrnou výměnu dat. Pro aplikace vyžadující interaktivní komunikaci v~reálném čase, jako je živé zobrazení telemetrie s~možností řízení odběru dat, představuje WebSocket vhodnější řešení~\cite{murley2021websocket}.
+
+\section{Kontejnerizace}
+
+\subsection{Docker}
+
+\textbf{Docker} je platforma pro kontejnerizaci aplikací, která umožňuje zabalit software spolu se všemi jeho závislostmi do izolované jednotky zvané \textbf{kontejner}~\cite{sipek2018docker}. Kontejner sdílí jádro hostitelského operačního systému, ale má vlastní souborový systém, síťový prostor a~procesy. Díky tomu je spuštění kontejneru řádově rychlejší a~méně náročné na prostředky než spuštění virtuálního stroje, který vyžaduje kompletní operační systém včetně vlastního jádra.
+
+\begin{sloppypar}
+Kontejnery se vytvářejí z~\textbf{obrazů} (images), které jsou definovány souborem \texttt{Dockerfile}. Obraz je složen z~vrstev (layers), kde každá vrstva odpovídá jedné instrukci v~\texttt{Dockerfile} -- například instalaci závislostí nebo kopírování zdrojového kódu~\cite{docker2024overview}. Vrstvy jsou sdílené a~cachované, což zrychluje opakované sestavení. Hlavní výhodou kontejnerizace je konzistence prostředí -- aplikace běží stejně na~vývojářském počítači, v~testovacím prostředí i~v~produkci.
+\end{sloppypar}
+
+\subsection{Docker Compose}
+
+\textbf{Docker Compose} je nástroj pro definici a~orchestraci vícekontejnerových aplikací pomocí jediného konfiguračního souboru ve formátu YAML (YAML Ain't Markup Language)~\cite{docker2024overview}. V~tomto souboru se deklarativně popisují jednotlivé služby, jejich obrazy, síťové propojení, proměnné prostředí a~datové svazky (volumes).
+
+Compose automaticky vytváří společnou síť pro všechny definované služby, ve které se kontejnery vzájemně adresují svými názvy jako hostitelskými jmény. Dále umožňuje definovat závislosti mezi službami a~podmínky spuštění -- například požadavek, aby databáze hlásila zdravý stav dříve, než se spustí aplikační server. Pro projekty menšího a~středního rozsahu představuje Docker Compose dostatečné řešení, které nevyžaduje komplexní orchestrátory jako Kubernetes.
+
+\section{Testování webových aplikací}
+
+Testování je nedílnou součástí vývoje software, jehož cílem je ověřit, že systém splňuje specifikované požadavky a~funguje správně za různých podmínek~\cite{sommerville2016se}. U~webových aplikací, kde spolu interaguje frontend, backend, databáze a~externí služby, je testování obzvlášť důležité kvůli množství integračních bodů, které mohou být zdrojem chyb.
+
+\subsection{Úrovně testování}
+
+Testování software se tradičně dělí do několika úrovní podle rozsahu testované jednotky~\cite{sommerville2016se}. Tento koncept je často vizualizován jako \textbf{testovací pyramida}, kterou poprvé popsal Cohn~\cite{cohn2010agile} -- na základně stojí velké množství rychlých unit testů, nad nimi menší počet integračních testů a~na vrcholu malý počet end-to-end testů.
+
+\textbf{Unit testy} (jednotkové testy) ověřují správnost izolovaných jednotek kódu -- typicky funkcí, metod nebo modulů -- nezávisle na zbytku systému~\cite{beck2003tdd}. Závislosti testované jednotky se nahrazují testovacími dvojníky (mocks, stubs), čímž se zajišťuje, že test selhává pouze kvůli chybě v~testovaném kódu, nikoli kvůli chybě v~závislosti~\cite{meszaros2007xunit}. Unit testy jsou nejrychlejší a~nejlevnější na údržbu, proto by jich mělo být nejvíce.
+
+\textbf{Integrační testy} ověřují spolupráci mezi dvěma a~více komponentami systému -- například zda API endpoint správně zpracuje HTTP požadavek, provede validaci, zavolá databázi a~vrátí očekávanou odpověď~\cite{sommerville2016se}. Na rozdíl od unit testů, které testují komponenty izolovaně, integrační testy odhalují chyby ve vzájemné komunikaci komponent.
+
+\textbf{Manuální (explorativní) testování} doplňuje automatizované testy v~oblastech, kde je automatizace náročná nebo neefektivní -- zejména při ověřování vizuální správnosti uživatelského rozhraní, uživatelské přívětivosti a~komplexních interaktivních scénářů~\cite{whittaker2009exploratory}. Tester při explorativním testování aktivně prozkoumává aplikaci bez předem definovaného skriptu a~využívá své zkušenosti k~odhalování neočekávaného chování.
+
+\subsection{Jest jako testovací framework}
+
+\textbf{Jest}\footnote{\url{https://jestjs.io/}} je testovací framework pro JavaScript a~TypeScript původně vyvinutý společností Meta, dnes spravovaný pod záštitou OpenJS Foundation~\cite{jest2024docs}. Jest poskytuje kompletní testovací prostředí zahrnující test runner, assertion knihovnu, mocking systém a~generování code coverage reportů v~jediném balíčku bez nutnosti konfigurace externích závislostí.
+
+Pro TypeScript projekty se Jest typicky používá s~transpilerem \textbf{ts-jest}, který umožňuje spouštět testy přímo z~TypeScriptových souborů. Jest podporuje paralelní spouštění testů, automatické sledování změn souborů (watch mode) a~snapshot testování pro ověřování struktury výstupních dat.

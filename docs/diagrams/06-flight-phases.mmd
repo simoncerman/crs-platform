@@ -1,0 +1,10 @@
+stateDiagram-v2
+    [*] --> Countdown: t=0
+    Countdown --> Launch: ignition
+    Launch --> Ascent: motor burn
+    Ascent --> Coast: engine cutoff
+    Coast --> Apogee: peak altitude
+    Apogee --> Descent: drogue chute
+    Descent --> Landing: main chute
+    Landing --> Complete: touchdown
+    Complete --> [*]

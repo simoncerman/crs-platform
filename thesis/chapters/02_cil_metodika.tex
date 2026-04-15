@@ -1,0 +1,68 @@
+\chapter{Cíl a metodika práce}
+
+\section{Hlavní cíl}
+Cílem bakalářské práce bylo vytvoření webové aplikace s~více funkcionalitami pro širší pokrytí potřeb spolku v~rámci webové prezentace a~zároveň pro vybudování dobrého základu, na kterém by mohli stavět další členové spolku.
+
+Nejviditelnější částí webové aplikace je samotný web s~moderním a~přehledným designem postaveným z~komponent pro snadnou práci s~ním i~v~budoucích letech. Součástí je také náborový dotazník, aktuality a~další části webu nepostradatelné pro prezentaci raketového spolku.
+
+Druhou částí je separátní backendová vrstva, která zajišťuje rozšířenou funkcionalitu -- primárně přenos dat ze~vzdálených testovacích míst a~pozemních stanic, jednak pro přehlednost činností, jednak pro zajištění bezpečnosti.
+
+\section{Dílčí cíle}
+
+Pro dosažení hlavního cíle jsou stanoveny následující dílčí cíle:
+
+\begin{enumerate}
+    \item \textbf{Veřejný web s~moderním designem} -- implementace responzivního webu se serverovým vykreslováním (SSR) pro optimalizaci načítání a~indexaci vyhledávači.
+    \item \textbf{Administrační systém pro správu obsahu} -- rozhraní umožňující členům spolku spravovat články, události, projekty, členy a~partnery bez nutnosti programátorských znalostí.
+    \item \textbf{Interaktivní náborový formulář} -- vícekrokový formulář s~průběžným ukládáním rozpracovaných přihlášek, e-mailovými notifikacemi a~administračním workflow pro správu uchazečů.
+    \item \textbf{Telemetrický systém} -- systém pro příjem, ukládání a~vizualizaci telemetrických dat z~raketových letů v~reálném čase, včetně přehrávání historických dat a~simulátoru pro testování.
+    \item \textbf{Autentizace a~zabezpečení platformy} -- přihlašování do administrace, ochrana API endpointů a~bezpečné ukládání citlivých údajů.
+    \item \textbf{Testování a~ověření funkčnosti} -- ověření správnosti aplikace automatizovanými testy (unit, integrační) i~manuálním testováním klíčových scénářů.
+\end{enumerate}
+
+\section{Metodika}
+Práce probíhala v~několika fázích zahrnujících analýzu požadavků, návrh architektury, implementaci a~testování aplikace.
+Analýza potřeb spolku proběhla prostřednictvím několika meetingů a~společného brainstormingu. Na těchto setkáních došlo ke zpřesnění požadavků a~ujasnění funkcionalit, které by měla aplikace obsahovat, aby byla spolku užitečnou komponentou.
+
+Aplikace byla vyvíjena iterativním přístupem, tedy průběžným prototypováním a~postupnou prací na~jednotlivých částech~\cite{nolle2020waterfall}. Toho bylo dosaženo díky rozdělení aplikace na logické části, které bylo možné testovat nezávisle na zbytku systému, případně nasazovat jednotlivě.
+Komponenty byly testovány jak jednotkovými testy, tak integračními testy i~uživatelským testováním.
+
+Pro testování telemetrického systému bez nutnosti fyzického startu je využíván simulátor generující realistická data. Do budoucna se počítá s~ověřením systému při reálných startech.
+
+Jelikož aplikace bude používána spolkem i~v~příštích letech, bylo dbáno na čitelnost kódu a~komentáře, aby bylo možné do aplikace v~budoucnosti přispívat. Tato bakalářská práce slouží jako popis architektury a~návrhových rozhodnutí, technická dokumentace API je generována automaticky nástrojem Swagger~UI.
+
+\section{Využití umělé inteligence ve vývojovém procesu}
+Integrace nástrojů založených na~velkých jazykových modelech (LLM) do~vývojového procesu představuje jeden z~nejvýraznějších trendů současného softwarového inženýrství. Systematický přehled 39~studií z~let 2014--2024, z~nichž 73\,\% bylo publikováno teprve v~roce 2024, dokládá rychle rostoucí zájem o~tuto oblast~\cite{mohamed2025llmproductivity}. Výzkumy ukazují, že LLM asistenti urychlují vývoj automatizací opakujících se úkonů, snižují potřebu vyhledávání řešení v~externích zdrojích a~pomáhají vývojářům udržet soustředění při práci. Empirické studie uvádějí zlepšení produktivity vývoje řádově v~desítkách procent. Zároveň však literatura upozorňuje, že zvýšená rychlost nemusí vždy korelovat s~kvalitou -- některé studie zaznamenaly trade-off mezi propustností a~kvalitou kódu, což podtrhuje důležitost průběžné revize generovaných výstupů~\cite{mohamed2025llmproductivity}.
+
+V~průběhu vývoje této bakalářské práce byly nástroje umělé inteligence (AI) využity k~podpoře různých aspektů vývojového procesu s~cílem zvýšit efektivitu a~usnadnit řešení komplexních problémů. Generované výstupy byly vždy podrobeny manuální kontrole a~úpravám. V~souladu se směrnicí FIM UHK jsou níže uvedeny konkrétní nástroje, jejich verze a~rozsah využití.
+
+\paragraph{Použité nástroje}
+
+\begin{itemize}
+    \item \textbf{Claude Code} (Anthropic, modely Claude Opus 4.5/4.6 a~Claude Sonnet 4.5) -- agentní CLI nástroj pro práci v~terminálu. Hlavní nástroj využívaný v~průběhu celého vývoje. Sloužil ke~generování kódu, refaktoringu, hromadným změnám napříč projektem, tvorbě testů, revizi kódu a~hledání chyb. Rovněž byl využit při korekturách textu bakalářské práce. Rozsah využití: vysoký -- využíván průběžně po~celou implementační fázi.
+
+    \item \textbf{GitHub Copilot} (GitHub, využívající modely Claude Sonnet~3.7, GPT a~další) -- doplněk do~editoru VS~Code poskytující průběžné návrhy kódu při~psaní. Využíván jako kontextový našeptávač pro dokončování řádků a~generování krátkých bloků kódu. Rozsah využití: střední -- aktivní během celého vývoje jako~kontextový našeptávač.
+
+    \item \textbf{Gemini} (Google, řada Gemini~2.5) -- využíván v~rané fázi projektu pro konzultace návrhu architektury, porovnávání technologických alternativ a~vyhledávání vhodných klíčových slov pro rešerši odborných zdrojů. Rozsah využití: nízký -- omezen na~fázi analýzy a~návrhu.
+
+    \item \textbf{NotebookLM} (Google) -- nástroj pro sumarizaci a~analýzu odborných zdrojů. Využíván při zpracování rešerše literatury k~rychlé orientaci v~obsahu zdrojů před jejich důkladným prostudováním. Rozsah využití: nízký -- omezen na rešeršní fázi.
+\end{itemize}
+
+\paragraph{Oblasti využití}
+
+AI nástroje byly integrovány do~následujících oblastí vývojového procesu:
+\begin{itemize}
+    \item \textbf{Analýza požadavků a~návrh architektury:} AI nástroje asistovaly při syntéze požadavků získaných od~členů spolku a~pomáhaly identifikovat klíčové funkcionality. Návrhy architektury byly s~nimi diskutovány za~účelem ověření zvoleného přístupu a~hledání možných vylepšení.
+
+    \item \textbf{Implementace a~refaktoring:} AI asistenti pomáhali s~generováním kódu, tvorbou boilerplate struktur, prováděním hromadných změn napříč projektem (přejmenování, aktualizace závislostí) a~navrhovali zlepšení kvality existujícího kódu.
+
+    \item \textbf{Revize kódu:} AI nástroje sloužily k~průběžné kontrole generovaného i~ručně psaného kódu -- identifikovaly potenciální chyby, bezpečnostní zranitelnosti a~nekonzistence, čímž doplňovaly manuální code review.
+
+    \item \textbf{Testování:} AI pomáhalo s~tvorbou testovacích scénářů, generováním testovacích dat a~analýzou výsledků testů pro odhalení slabých míst v~aplikaci.
+
+    \item \textbf{Texty uživatelského rozhraní:} AI nástroje asistovaly při tvorbě a~úpravě textů zobrazovaných na~webu (popisky, hlášky, navigační prvky).
+
+    \item \textbf{Korektury textu práce:} U~textu bakalářské práce byly AI nástroje využity výhradně ke~korekturám pravopisu, návrhům formulačních úprav a~ověřování srozumitelnosti odborného textu. Samotný obsah a~struktura práce byly zpracovány samostatně.
+\end{itemize}
+
+Koncepční rozhodnutí, architektura systému, výběr technologií a~finální podoba implementace byly zpracovány samostatně. Limity AI nástrojů a~konkrétní příklady problémů, které vyžadovaly manuální opravu, jsou diskutovány v~kapitolách~\ref{chap:testovani} a~\ref{chap:diskuse}.

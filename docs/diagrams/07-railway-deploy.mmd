@@ -1,0 +1,52 @@
+graph TB
+    subgraph RAILWAY["Railway projekt"]
+        subgraph SVC1["Mosquitto"]
+            M_IMG["eclipse-mosquitto:2.0"]
+            M_PORT["Port: 9001 (WS)"]
+            M_VOL[("Volume:<br/>/mosquitto/data")]
+            M_DOM["mosquitto-production-*.railway.app"]
+        end
+
+        subgraph SVC2["InfluxDB"]
+            I_IMG["influxdb:2.7-alpine"]
+            I_NET["Pouze interní síť<br/>influxdb.railway.internal:8086"]
+            I_VOL[("Volume:<br/>/var/lib/influxdb2")]
+        end
+
+        subgraph SVC3["Go Telemetry"]
+            G_IMG["Dockerfile: apps/telemetry/"]
+            G_PORT["Port: 8082"]
+            G_DOM["telemetry-production-*.railway.app"]
+        end
+
+        subgraph SVC4["Next.js Web"]
+            W_IMG["apps/web"]
+            W_PORT["Port: 3000"]
+            W_DOM["web-production-*.railway.app"]
+        end
+
+        subgraph SVC5["Hono API"]
+            A_IMG["apps/api"]
+            A_PORT["Port: 3001"]
+        end
+
+        PG[("PostgreSQL 16")]
+    end
+
+    G_IMG -->|"mqtt<br/>mosquitto.railway.internal:1883"| M_IMG
+    G_IMG -->|"http<br/>influxdb.railway.internal:8086"| I_IMG
+    A_IMG --> PG
+
+    INTERNET((Internet)) -->|"wss://"| M_DOM
+    INTERNET -->|"wss://"| G_DOM
+    INTERNET -->|"https://"| W_DOM
+
+    classDef svc fill:#2d3436,stroke:#636e72,color:#dfe6e9
+    classDef vol fill:#6c5ce7,stroke:#a29bfe,color:#fff
+    classDef dom fill:#00b894,stroke:#00cec9,color:#fff
+    classDef db fill:#fdcb6e,stroke:#ffeaa7,color:#333
+
+    class M_IMG,I_IMG,G_IMG,W_IMG,A_IMG svc
+    class M_VOL,I_VOL vol
+    class M_DOM,G_DOM,W_DOM dom
+    class PG db

@@ -1,0 +1,32 @@
+\chapter{Shrnutí a diskuse výsledků}
+\label{chap:diskuse}
+
+Tato kapitola shrnuje dosažené výsledky, porovnává je s~výchozím stavem a~teoretickými předpoklady a~diskutuje okolnosti, které průběh práce ovlivnily.
+
+\section{Porovnání s~výchozím stavem}
+
+Platforma přináší zásadní posun oproti předchozímu řešení spolku ve třech klíčových oblastech.
+
+\textbf{Webová prezentace.} Předchozí web spolku sestával ze~statických HTML stránek, jejichž aktualizace vyžadovala ruční úpravu zdrojového kódu a~opětovné nasazení (viz~kapitola~\ref{chap:analyza}). Nová platforma zavádí administrační CMS, který umožňuje správu obsahu prostřednictvím webového rozhraní bez programátorských znalostí. Obsah lze vytvářet, upravovat a~publikovat v~reálném čase, včetně plánovaného zveřejnění článků k~zadanému datu.
+
+\textbf{Náborový proces.} Původní řešení využívalo externí formulář na platformě JotForm, oddělený od zbytku webu a~bez možnosti průběžného ukládání. Nový náborový formulář je integrovanou součástí platformy s~šesti kroky, automatickým ukládáním rozpracovaných přihlášek, e-mailovými notifikacemi a~administračním workflow pro správu uchazečů. Uchazeč může formulář kdykoliv opustit a~vrátit se k~němu prostřednictvím odkazu zaslaného e-mailem.
+
+\textbf{Telemetrický systém.} Původní řešení postavené na PHP skriptech a~HTTP pollingu trpělo vysokou latencí, zbytečnou zátěží serveru a~absencí historických dat. Nový systém využívá protokol MQTT s~dedikovaným Go serverem a~časovou databází InfluxDB, což přineslo nízkou latenci přenosu, dávkový zápis dat a~možnost zpětné analýzy letů včetně exportu dat.
+
+\section{Soulad výsledků s~literaturou}
+
+\textbf{MQTT a~kvalita doručení.} Literatura~\cite{kegenbekov2022mqtt} doporučuje pro telemetrická data nižší úrovně QoS s~důrazem na~nízkou latenci. Provedený benchmark v~sekci~\ref{sec:qos-benchmark} ukázal, že QoS~0 a~QoS~1 dosahují srovnatelné latence (46--66\,ms) při frekvencích do~100\,Hz. Volba QoS~1 oproti QoS~0 byla učiněna jako kompromis -- garance doručení zajistí kompletnost dat při krátkodobých výpadcích spojení, aniž by se výrazně zhoršila latence. Překvapivým zjištěním bylo, že QoS~2 při vyšších frekvencích (od~200\,Hz) způsoboval zahlcení brokeru s~vyššími ztrátami než QoS~0, což je v~souladu s~režií čtyřkrokového handshake mechanismu QoS~2 popisovanou v~odborné literatuře~\cite{mqtt2014oasis}.
+
+\textbf{Serverové vykreslování a~monorepo.} SSR přístup Next.js byl zvolen primárně kvůli SEO veřejných stránek, což literatura~\cite{pati2025nextjs} obecně potvrzuje jako přínos oproti čistým SPA aplikacím. V~praxi se architektura osvědčila tím, že veřejné stránky jsou vykreslovány na~serveru, zatímco administrace funguje jako bohatě interaktivní rozhraní. Přínosy monorepo přístupu, v~literatuře typicky diskutované v~kontextu velkých organizací~\cite{potvin2016monorepo}, se projevily i~v~malém projektu -- konkrétně sdílením TypeScript typů mezi frontendem a~backendem a~atomickými změnami API kontraktu v~jediném revizním kroku. Přístup schema-as-code v~Drizzle ORM se subjektivně osvědčil -- schéma definované přímo v~TypeScriptu slouží současně jako dokumentace, zdroj typů i~podklad pro migrace, čímž odpadá nutnost udržovat separátní definiční jazyk.
+
+\textbf{Go pro výkonnostně kritické služby.} Jazyk Go byl zvolen pro telemetrický server díky nativní podpoře konkurenčního programování prostřednictvím goroutin a~kanálů~\cite{donovan2015go, gospec2024}. V~praxi tento model umožnil paralelní zpracování MQTT příjmu, dávkového zápisu do~InfluxDB a~WebSocket distribuce klientům bez nutnosti komplexní synchronizace. Server stabilně zpracovával data při frekvencích testovaných v~benchmarku (do~200\,Hz) bez znatelných problémů na~straně aplikace.
+
+\textbf{Produktivita s~AI nástroji.} Mohamed et~al.~\cite{mohamed2025llmproductivity} ve~své systematické rešerši uvádějí, že empirické studie pozorují zlepšení produktivity vývojářů řádově v~desítkách procent, zároveň však upozorňují na~riziko snížené kvality generovaného kódu. Zkušenosti z~vývoje této platformy tomuto obrazu odpovídají -- AI nástroje výrazně urychlily tvorbu boilerplate kódu a~hromadné refaktoringy, ale generovaný kód vyžadoval důslednou kontrolu v~kontextu celé aplikace. Konkrétní problémy, které se v~průběhu vývoje s~podporou AI vyskytly (nechtěné odeslání formuláře při výběru obrázku, nestandardní HTML výstup u~knihovny react-quill-new, chybějící business logika plánovaného publikování článků), jsou dokumentovány v~kapitole~\ref{chap:testovani}.
+
+\section{Okolnosti ovlivňující průběh práce}
+
+\textbf{Volba technologií.} Volba knihovny react-quill-new pro rich-text editor se v~průběhu vývoje ukázala jako nevhodná kvůli nestandardnímu HTML výstupu a~musela být nahrazena knihovnou Tiptap, jak je popsáno v~sekci~\ref{sec:test-richtext}.
+
+\textbf{Iterativní přístup.} Vývoj po~logických celcích (backend API $\rightarrow$ administrace $\rightarrow$ veřejný web $\rightarrow$ telemetrie) umožnil průběžné testování a~odhalování problémů v~rané fázi. Konkrétní chyby jako přetečení sloupce VARCHAR v~databázi nebo duplicitní náborové záznamy (viz~kapitola~\ref{chap:testovani}) byly odhaleny již ve~fázi implementace náborového procesu, nikoli až při závěrečném testování.
+
+\textbf{Limitace a~vynechané oblasti.} Některé oblasti byly vědomě ponechány mimo rozsah práce s~ohledem na~prioritizaci funkčního jádra platformy. End-to-end testy a~CI/CD pipeline nebyly v~této fázi implementovány, jejich zavedení je však přirozeným rozšířením díky kontejnerizované architektuře a~existující sadě automatizovaných testů. Obdobně osobní údaje uchazečů v~náborových přihláškách jsou v~současné implementaci uloženy jako prostý text -- vzhledem k~malému rozsahu spolku se nejedná o~kritickou slabinu, šifrování těchto dat je však přirozeným kandidátem na~budoucí rozšíření, jakmile platforma začne pracovat s~větším objemem citlivých informací.

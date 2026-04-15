@@ -1,0 +1,41 @@
+name: Deploy to Devel
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'thesis/**'
+      - '*.md'
+      - '.gitignore'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Azure VM
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            cd ~/crs-platform/repo
+            git pull origin main
+
+            # Sync config files from master copies
+            cp ~/crs-platform/.env.prod .env
+            cp ~/crs-platform/docker-compose.prod.yml docker-compose.prod.yml
+            mkdir -p mosquitto/config
+            cp docker/mosquitto/config/mosquitto.conf mosquitto/config/
+
+            # Rebuild changed services
+            docker compose -f docker-compose.prod.yml --env-file .env build
+
+            # Restart
+            docker compose -f docker-compose.prod.yml --env-file .env up -d
+
+            # Push DB schema
+            sleep 5
+            docker exec crs-api sh -c "cd /app/apps/api && pnpm db:push" || true
+
+            echo "Deploy complete: $(date)"

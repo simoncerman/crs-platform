@@ -1,0 +1,525 @@
+\chapter{Návrh řešení}
+\label{chap:navrh}
+
+\section{Architektura aplikace}
+
+Platforma je navržena jako soustava tří samostatných aplikací doplněných infrastrukturními službami. Aplikace \texttt{web} (Next.js) zajišťuje prezentační vrstvu, \texttt{api} (Hono) poskytuje REST rozhraní pro správu obsahu a~\texttt{telemetry} (Go) zpracovává telemetrická data v~reálném čase. Infrastrukturu tvoří relační databáze PostgreSQL, časová databáze InfluxDB a~MQTT broker Mosquitto. Celkový pohled na architekturu znázorňuje obrázek~\ref{fig:architecture}.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+    app/.style={rectangle, draw, rounded corners, minimum height=1.1cm, minimum width=3cm, align=center, font=\small, fill=blue!8},
+    infra/.style={rectangle, draw, rounded corners, minimum height=1.1cm, minimum width=3cm, align=center, font=\small, fill=gray!15},
+    ext/.style={rectangle, draw, rounded corners, dashed, minimum height=1.1cm, minimum width=3cm, align=center, font=\small},
+    arr/.style={-{Stealth[length=3mm]}, thick},
+    lbl/.style={font=\footnotesize, fill=white, inner sep=1.5pt}
+]
+    % Pozice — 3 sloupce: levý (0), střed (5), pravý (10)
+
+    % Řádek 1 — externí
+    \node[ext] (browser) at (0, 0) {Prohlížeč};
+    \node[ext] (device) at (10, 0) {Raketa / Simulátor};
+
+    % Řádek 2 — frontend + broker
+    \node[app] (web) at (0, -2.5) {Next.js\\{\footnotesize (frontend)}};
+    \node[infra] (mqtt) at (10, -2.5) {Mosquitto\\{\footnotesize (MQTT broker)}};
+
+    % Řádek 3 — backend + Go server
+    \node[app] (api) at (0, -5) {Hono API\\{\footnotesize (backend)}};
+    \node[app] (telemetry) at (10, -5) {Go server\\{\footnotesize (telemetrie)}};
+
+    % Řádek 4 — databáze + služby
+    \node[infra] (postgres) at (-1, -7.5) {PostgreSQL};
+    \node[infra] (mailhog) at (2.5, -7.5) {MailHog\\{\footnotesize (SMTP)}};
+    \node[infra] (influx) at (10, -7.5) {InfluxDB};
+
+    % === Vertikální šipky (hlavní toky) ===
+    \draw[arr] (browser) -- node[lbl, left] {HTTP} (web);
+    \draw[arr] (web) -- node[lbl, left] {REST API} (api);
+    \draw[arr] (api) -- node[lbl, left] {SQL} (postgres);
+    \draw[arr] (api) -- node[lbl, right] {SMTP} (mailhog);
+    \draw[arr] (device) -- node[lbl, right] {MQTT publish} (mqtt);
+    \draw[arr] (mqtt) -- node[lbl, right] {subscribe} (telemetry);
+    \draw[arr] ($(telemetry.south)+(0.3,0)$) -- node[lbl, right] {write} ($(influx.north)+(0.3,0)$);
+    \draw[arr] ($(influx.north)+(-0.3,0)$) -- node[lbl, left] {read} ($(telemetry.south)+(-0.3,0)$);
+
+    % === Cross-stack šipky ===
+
+    % WebSocket: Go server → Prohlížeč (horizontálně do středu, pak nahoru, pak do pravého boku prohlížeče)
+    \draw[arr] (telemetry.west) -- node[lbl, above] {WebSocket} (browser.east);
+
+    % MQTT-over-WS: Mosquitto → Prohlížeč (nahoru, pak vlevo do pravého horního rohu)
+    \draw[arr, dashed] (mqtt.west) -- node[lbl, above] {\footnotesize MQTT-over-WS}  (browser.north east);
+
+\end{tikzpicture}
+\caption{Architektura platformy a~komunikační toky mezi komponentami.}
+\label{fig:architecture}
+\end{figure}
+
+\subsection{Monorepo struktura}
+
+Zdrojový kód je organizován v~monorepo repozitáři spravovaném nástrojem \textbf{pnpm workspaces}. Repozitář obsahuje tři aplikace v~adresáři \texttt{apps/} -- frontend (\texttt{web}), backend (\texttt{api}) a~telemetrický server (\texttt{telemetry}) -- a~sdílený adresář \texttt{packages/} pro případné společné knihovny.
+
+Monorepo přístup umožňuje provádět atomické změny napříč frontendem i~backendem v~jediném commitu, sdílet TypeScript typy a~Zod validační schémata mezi aplikacemi a~spravovat závislosti z~jednoho místa. Podrobná adresářová struktura repozitáře je uvedena v~kapitole~\ref{chap:implementace}.
+
+\subsection{Komunikace mezi komponentami}
+
+\begin{sloppypar}Frontend komunikuje s~backendem prostřednictvím REST API ve formátu JSON. Na~straně serveru Next.js používá pro API volání interní Docker adresu (\texttt{http://\allowbreak api:3001}), zatímco prohlížeč přistupuje přes externě dostupnou adresu (ve~vývoji \texttt{http://\allowbreak localhost:\allowbreak 3001}, v~produkci adresa nasazeného API). Klientská strana využívá knihovnu React Query pro cachování a~automatickou invalidaci dat.\end{sloppypar}
+
+Backend přistupuje k~PostgreSQL skrze Drizzle ORM, který generuje typově bezpečné SQL dotazy. Telemetrický server v~Go odebírá zprávy z~MQTT brokeru, zapisuje je dávkově do InfluxDB a~současně je distribuuje připojeným klientům přes WebSocket. Pro vizualizaci telemetrických dat v~prohlížeči se primárně používá přímé připojení k~Mosquitto přes MQTT-over-WebSocket, které nevyžaduje běžící Go server a~poskytuje nejkratší cestu dat k~uživateli. Go server slouží jako alternativní kanál s~optimalizací distribuce dat.
+
+\subsection{Kontejnerizace a vývojové prostředí}
+
+\begin{sloppypar}
+Vývojové prostředí je definováno pomocí Docker Compose, který orchestruje osm služeb platformy -- databáze (PostgreSQL, InfluxDB), komunikační služby (Mosquitto, MailHog), administrační nástroje (pgAdmin) a~aplikace (API, web, telemetrie). Všechny kontejnery sdílejí společnou síť a~vzájemně se adresují svými názvy služeb.
+\end{sloppypar}
+
+\section{Datový model}
+
+Platforma využívá dva typy datových úložišť, z~nichž každé je optimalizováno pro odlišný charakter dat. Relační databáze PostgreSQL slouží k~ukládání strukturovaných dat systému správy obsahu -- uživatelských účtů, článků, událostí, projektů, členů, partnerů a~náborových přihlášek. Časová databáze InfluxDB je určena výhradně pro telemetrická data z~raketových letů, která mají charakter časových řad s~vysokou frekvencí zápisů.
+
+Oddělení obou úložišť vychází z~odlišných požadavků na zápis a~dotazování. CMS data vyžadují transakční konzistenci (ACID), komplexní dotazy s~filtry a~relace mezi entitami. Telemetrická data naopak vyžadují vysoký průchod zápisů a~efektivní agregace nad časovými rozsahy.
+
+\subsection{Relační schéma (PostgreSQL)}
+
+Databázové schéma obsahuje devět tabulek pokrývajících všechny doménové entity platformy (kompletní ER diagram je uveden v~příloze~\ref{app:er-diagram}). Schéma je definováno přístupem schema-as-code v~TypeScriptu pomocí Drizzle ORM, z~čehož se automaticky generují migrace i~typové definice.
+
+\paragraph{Přehled tabulek}
+
+\begin{itemize}
+    \item \textbf{users} -- administrátorské účty pro CMS (email, heslo, role \texttt{admin}/\texttt{editor})
+    \item \textbf{articles} -- aktuality a~blogové příspěvky s~podporou kategorií, štítků a~rich-text obsahu
+    \item \textbf{events} -- události spolku s~datem, místem a~typem (start, test, nábor, PR akce)
+    \item \textbf{members} -- členové spolku s~kontaktními údaji, rolí, odborem a~profilovým obrázkem
+    \item \textbf{projects} -- raketové projekty s~kategorií, technickými specifikacemi a~galerií
+    \item \textbf{project\_members} -- vazební tabulka pro vztah M:N mezi projekty a~členy
+    \item \textbf{recruitment\_submissions} -- náborové přihlášky s~kompletním workflow:\newline
+    \texttt{draft} $\rightarrow$ \texttt{pending} $\rightarrow$ \texttt{interview\_scheduled} $\rightarrow$ \texttt{interviewed} $\rightarrow$ \texttt{accepted} $\rightarrow$ \texttt{documents\_sent} $\rightarrow$ \texttt{completed}\,/\,\texttt{rejected}
+    \item \textbf{recruitment\_settings} -- konfigurace náborového procesu (dostupné role, úkoly)
+    \item \textbf{partners} -- partnerské organizace s~třístupňovým systémem (silver, gold, diamond)
+\end{itemize}
+
+\paragraph{Návrhové volby}
+
+\textbf{UUID primární klíče.} Všechny tabulky používají jako primární klíč UUID generovaný databází (\texttt{gen\_random\_uuid()}). Oproti sekvenčním identifikátorům UUID eliminuje riziko kolizí při distribuovaném zápisu a~neprozrazuje pořadí ani počet záznamů v~adresách URL (Uniform Resource Locator).
+
+\textbf{JSONB sloupce pro flexibilní metadata.} Některé atributy entity nemají pevnou strukturu a~mohou se v~čase měnit. Pro tyto případy schéma využívá datový typ JSONB, který umožňuje ukládat polostrukturovaná data přímo v~relační tabulce. Konkrétně se jedná o~štítky článků a~členů (\texttt{tags}), galerie obrázků (\texttt{images}), technické specifikace projektů (\texttt{specs}) a~konfiguraci náborových rolí a~úkolů (\texttt{roles}, \texttt{tasks} v~tabulce \texttt{recruitment\_settings}).
+
+\textbf{TEXT místo VARCHAR pro volné textové vstupy.} Sloupce přijímající uživatelský text (motivace, zkušenosti, poznámky administrátora) používají typ \texttt{TEXT} bez omezení délky. Pevné limity \texttt{VARCHAR} neumožňovaly dostatečnou flexibilitu při zadávání odpovědí v~náborovém formuláři, kde délka textu závisí na konkrétním uchazeči a~nelze ji předem odhadnout.
+
+\begin{sloppypar} 
+\textbf{Řízení viditelnosti obsahu.} Entity publikovatelné na~veřejném webu (články, události, projekty, partneři) kombinují dva mechanismy: booleovský příznak \texttt{published} pro jednoduché přepínání viditelnosti a~textový sloupec \texttt{status} pro detailnější workflow. Články používají stavy \texttt{draft}\,/\,\texttt{published}\,/\,\texttt{archived} a~projekty \texttt{planning}\,/\,\allowbreak\texttt{development}\,/\,\texttt{testing}\,/\,\texttt{completed}. Události nemají explicitní sloupec statusu -- jejich stav se automaticky odvozuje z~dat začátku a~konce, s~možností ručně nastavit speciální status \texttt{cancelled} nebo \texttt{pos\-tponed}.
+\end{sloppypar}
+\begin{sloppypar}
+\textbf{Vlastní výčtový typ.} Pro partnerské úrovně je definován PostgreSQL enum \texttt{partner\-\_tier} s~hodnotami \texttt{silver}, \texttt{gold} a~\texttt{diamond}. Každá úroveň určuje rozsah zobrazovaných informací na~webu -- od~loga (silver) přes popis (gold) až po plnou prezentaci s~hero obrázkem (diamond).
+\end{sloppypar}
+
+\paragraph{Relace}
+
+Schéma obsahuje dva typy relací. Vztah 1:N propojuje články s~autory -- sloupec \texttt{articles.author\_id} odkazuje na \texttt{users.id}. Vztah M:N mezi projekty a~členy je realizován prostřednictvím vazební tabulky \texttt{project\_members}, která navíc uchovává roli člena v~projektu (vedoucí, inženýr apod.). Obě reference ve vazební tabulce definují kaskádové mazání (\texttt{ON DELETE CASCADE}), aby odstranění projektu nebo člena automaticky vyčistilo přiřazení.
+
+Všechny tabulky obsahují sloupce \texttt{created\_at} a~\texttt{updated\_at} s~výchozí hodnotou aktuálního časového razítka, které zajišťují auditní stopu pro každý záznam.
+
+\subsection{Časové schéma (InfluxDB)}
+
+InfluxDB organizuje data do tříúrovňové hierarchie: \textbf{organizace} (pracovní prostor sdružující uživatele a~přístupové tokeny), \textbf{bucket} (úložiště dat, obdoba databáze v~relačním modelu) a~\textbf{measurement} (obdoba tabulky, sdružuje datové body stejného typu). Telemetrická data platformy jsou ukládána v~bucketu \texttt{telemetry} v~rámci organizace \texttt{czech-rocket-society}, přičemž veškerá data sdílejí jediný measurement pojmenovaný \texttt{telemetry}.
+
+\paragraph{Struktura záznamu}
+
+Každý datový bod obsahuje čtyři tagy (indexované atributy pro efektivní filtrování) a~dynamickou sadu polí (měřené hodnoty):
+
+\begin{sloppypar}
+\begin{itemize}
+    \item \textbf{Tagy:} \texttt{session\-\_id} (identifikátor letu nebo testu), \texttt{device\-\_type} (\texttt{rocket} nebo \texttt{test-stand}), \texttt{device\-\_id} (konkrétní zařízení) a~\texttt{data\-\_type} (kategorie dat -- \texttt{position}, \texttt{velocity}, \texttt{sensors}).
+    \item \textbf{Pole:} dynamicky odvozená z~MQTT payloadu -- například \texttt{alt} (výška), \texttt{lat}/\texttt{lon} (GPS souřadnice), \texttt{vx}/\texttt{vy}/\texttt{vz} (složky rychlosti), \texttt{temp} (teplota), \texttt{pressure} (tlak) nebo \texttt{battery} (stav baterie).
+    \item \textbf{Časové razítko:} jako vlastní časové razítko datového bodu se používá čas příjmu zprávy serverem. Pokud payload obsahuje pole \texttt{ts} (milisekundy od~epochy), server jej uloží jako pomocné pole \texttt{device\_ts} a~automaticky dopočítá latenci přenosu jako rozdíl obou časů.
+\end{itemize}
+\end{sloppypar}
+
+Dynamická struktura polí umožňuje přidávat nové typy senzorů bez nutnosti úprav schématu -- server zapíše jakékoli klíče obsažené v~JSON payloadu jako pole datového bodu.
+
+Telemetrická data z~raketových letů jsou uchovávána trvale, protože objem dat z~jednotlivých letů je relativně malý. Pro práci s~historickými daty poskytuje telemetrický server REST API s~podporou exportu do formátu CSV (Comma-Separated Values) a~JSON.
+
+\section{Návrh API}
+
+Platforma poskytuje dvě nezávislá API rozhraní. REST API postavené na frameworku Hono obsluhuje správu obsahu (CRUD -- Create, Read, Update, Delete -- operace nad všemi entitami), autentizaci a~nahrávání souborů. Telemetrické API v~Go zajišťuje distribuci dat v~reálném čase přes WebSocket a~přístup k~historickým měřením. Obě API komunikují výhradně ve formátu JSON (JavaScript Object Notation), používají standardní HTTP metody (GET, POST, PUT, DELETE) a~vracejí odpovídající stavové kódy (200, 201, 400, 401, 403, 404, 500).
+
+\subsection{REST API (Hono)}
+
+\paragraph{Přehled endpointů}
+
+REST API je organizováno do devíti skupin endpointů připojených na společný prefix \texttt{/api}. Tabulka~\ref{tab:api-endpoints} uvádí přehled hlavních endpointů s~jejich autorizačními požadavky.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{llll}
+\hline
+\textbf{Skupina} & \textbf{HTTP metody} & \textbf{Zápis vyžaduje JWT} & \textbf{Popis} \\
+\hline
+\texttt{/auth} & POST & ne (registrace ano) & přihlášení, registrace \\
+\texttt{/articles} & GET, POST, PUT, DELETE & ano & články a~aktuality \\
+\texttt{/events} & GET, POST, PUT, DELETE & ano & události spolku \\
+\texttt{/projects} & GET, POST, PUT, DELETE & ano & raketové projekty \\
+\texttt{/members} & GET, POST, PUT, DELETE & ano & členové spolku \\
+\texttt{/partners} & GET, POST, PUT, DELETE & ano & partnerské organizace \\
+\texttt{/recruitment} & GET, POST, PUT & částečně & náborové přihlášky \\
+\texttt{/upload} & POST, GET, DELETE & ano & nahrávání souborů \\
+\texttt{/media} & POST, GET, DELETE & ano & správa obrázků \\
+\hline
+\end{tabular}
+\caption{Přehled skupin API endpointů a~jejich autorizačních úrovní.}
+\label{tab:api-endpoints}
+\end{table}
+
+Endpointy pro čtení dat (GET) jsou u~obsahových entit veřejné, přičemž neautentizovaným uživatelům se vrací pouze publikovaný obsah. Autentizovaný uživatel vidí i~nepublikované záznamy, což umožňuje náhled rozpracovaného obsahu v~administraci. Operace zápisu (POST, PUT, DELETE) vyžadují platný JWT token.
+
+Každá obsahová entita (články, události, projekty) podporuje vyhledávání podle slugu -- unikátního textového identifikátoru odvozeného z~názvu, který slouží jako součást veřejné URL adresy.
+
+\paragraph{Autorizační úrovně}
+
+Přístupové účty nejsou veřejně dostupné -- vytváří je výhradně hlavní administrátor a~uděluje je pouze členům spolku, kteří mají obsah spravovat. Každý přihlášený uživatel je tedy důvěryhodný člen spolku s~oprávněním upravovat obsah platformy. Díky tomu API pracuje se dvěma základními úrovněmi přístupu:
+
+\begin{enumerate}
+    \item \textbf{Veřejný} -- endpoint je přístupný bez autentizace. Slouží pro čtení publikovaného obsahu, přihlášení do administrace a~odeslání náborové přihlášky.
+    \item \textbf{Autentizovaný (JWT)} -- middleware \texttt{auth\-Middleware} ověří platnost tokenu z~hlavičky \texttt{Authorization:\allowbreak{} Bearer\allowbreak{} <token>} a~extrahuje identitu uživatele. Tato úroveň chrání veškeré operace zápisu (vytváření, editace, mazání obsahu) a~zpřístupňuje nepublikované záznamy pro náhled v~administraci.
+\end{enumerate}
+
+Tento model je dostatečný pro organizaci velikosti spolku, kde počet uživatelů s~přístupem do administrace je řádově v~jednotkách a~jejich oprávnění se řídí vzájemnou důvěrou. V~případě budoucího růstu lze systém rozšířit o~granulární role (například editor bez práva mazat obsah) zavedením dalšího middleware v~řetězci.
+
+\paragraph{Validace vstupů}
+
+Vstupní data na~POST a~PUT endpointech jsou validována pomocí knihovny Zod. Pro každou entitu je definováno schéma popisující povinná a~volitelná pole, datové typy a~povolené hodnoty (například výčet stavů \texttt{draft}\allowbreak/\allowbreak\texttt{published}\allowbreak/\allowbreak\texttt{archived} u~článků nebo \texttt{silver}\allowbreak/\allowbreak\texttt{gold}\allowbreak/\allowbreak\texttt{diamond} u~partnerů). Validace probíhá jako middleware před samotným zpracováním požadavku -- při neplatných datech server vrátí stavový kód 400 s~popisem chyb.
+
+\paragraph{Nahrávání souborů}
+\label{sec:navrh-upload}
+
+Soubory jsou přijímány jako \texttt{multipart/form-data}. Server validuje typ souboru (obrázky: JPEG, PNG, WebP, GIF; dokumenty: PDF, DOCX) a~maximální velikost (5~MB). Nahrané soubory jsou ukládány do adresáře \texttt{/uploads/} a~servírovány prostřednictvím statického middleware na cestě \texttt{/uploads/*}.
+
+Jednou nahrané soubory zůstávají v~knihovně médií a~lze je opakovaně vkládat do různého obsahu -- například tentýž obrázek může sloužit jako náhled článku i~jako fotografie v~galerii projektu. Administrační rozhraní pro práci s~knihovnou médií je popsáno v~kapitole~\ref{chap:implementace}.
+
+\subsection{Telemetrické API (Go)}
+
+Telemetrický server poskytuje WebSocket endpoint pro streaming v~reálném čase a~čtyři REST endpointy pro přístup k~historickým datům.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{lll}
+\hline
+\textbf{Metoda} & \textbf{Cesta} & \textbf{Popis} \\
+\hline
+GET & \texttt{/ws/telemetry} & WebSocket -- stream telemetrie v~reálném čase \\
+GET & \texttt{/api/sessions} & seznam telemetrických sessions \\
+GET & \texttt{/api/sessions/\{id\}/devices} & zařízení v~dané session \\
+GET & \texttt{/api/history} & historická data s~downsampling \\
+GET & \texttt{/api/history/export} & export dat (JSON nebo CSV) \\
+\hline
+\end{tabular}
+\caption{Endpointy telemetrického API.}
+\label{tab:telemetry-endpoints}
+\end{table}
+
+Telemetrické API nevyžaduje autentizaci -- data z~letů jsou veřejná a~přístupná všem návštěvníkům webu. WebSocket endpoint přijímá parametr \texttt{session\_id}, na jehož základě server filtruje a~odesílá pouze data z~požadované session. Způsob, jakým se data do telemetrického serveru dostávají prostřednictvím MQTT protokolu, je podrobně popsán v~sekci~\ref{sec:navrh-telemetrie}.
+
+\section{Návrh uživatelského rozhraní}
+
+Uživatelské rozhraní se skládá ze dvou oddělených částí se zásadně odlišným charakterem. Veřejná část je určena návštěvníkům webu -- využívá serverové vykreslování (SSR) pro optimalizaci načítání a~indexaci vyhledávači a~klade důraz na vizuální prezentaci. Administrační rozhraní je klientská aplikace (SPA) přístupná pouze přihlášeným členům spolku, zaměřená na efektivní správu obsahu.
+
+\subsection{Veřejná část}
+\label{sec:navrh-verejne-stranky}
+
+\begin{sloppypar}
+Veřejný web obsahuje čtrnáct stránek pokrývajících všechny prezentační potřeby spolku. Struktura stránek a~jejich URL cesty v~češtině jsou shrnuty v~tabulce~\ref{tab:public-routes}.
+\end{sloppypar}
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\begin{tabular}{lll}
+\hline
+\textbf{URL cesta} & \textbf{Stránka} & \textbf{Obsah} \\
+\hline
+\texttt{/} & úvodní stránka & hero sekce, statistiky, projekty, aktuality \\
+\texttt{/aktuality} & seznam článků & mřížka článků s~náhledy a~výtahy \\
+\texttt{/aktuality/[slug]} & detail článku & plný text s~obrázky \\
+\texttt{/udalosti} & seznam událostí & karty s~datem, místem a~typem \\
+\texttt{/udalosti/[slug]} & detail události & popis, mapa, termín \\
+\texttt{/projekty} & přehled projektů & zvýrazněné a~běžné projekty \\
+\texttt{/projekty/[slug]} & detail projektu & specifikace, tým, galerie \\
+\texttt{/clenove} & členové spolku & mřížka s~fotkou, rolí a~odkazy \\
+\texttt{/partneri} & partneři & třístupňové zobrazení dle tier \\
+\texttt{/o-nas} & o~spolku & mise, hodnoty, správní rada \\
+\texttt{/nabor} & náborový formulář & vícekrokový formulář \\
+\texttt{/telemetrie} & telemetrický hub & seznam sessions, vstup do live \\
+\texttt{/telemetrie/live/[id]} & živá telemetrie & grafy a~mapa v~reálném čase \\
+\texttt{/telemetrie/playback/[id]} & historie letu & statické grafy, volba rozlišení \\
+\hline
+\end{tabular}
+\caption{Struktura veřejných stránek platformy.}
+\label{tab:public-routes}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{homepage.png}
+\caption{Úvodní stránka veřejného webu Czech Rocket Society.}
+\label{fig:homepage}
+\end{figure}
+
+Stránky s~dynamickým obsahem (články, události, projekty) používají v~URL adrese slug místo databázového identifikátoru. Slug je čitelný textový řetězec odvozený z~názvu entity (například \texttt{/aktuality/prvni-start-rakety-sherpa}), díky čemuž je adresa srozumitelná pro uživatele i~vyhledávače.
+
+Všechny veřejné stránky jsou vykreslovány na~serveru (SSR) při každém požadavku, což zajišťuje, že návštěvník vždy obdrží aktuální obsah a~vyhledávače mohou stránky plně indexovat. Rozvržení je responzivní -- mřížky obsahu se přizpůsobují šířce obrazovky. Úvodní stránka veřejného webu je zachycena na~obrázku~\ref{fig:homepage}.
+
+\subsection{Administrace}
+
+Administrační rozhraní je přístupné na~cestě \texttt{/admin} a~chráněné middleware, který nepřihlášené uživatele přesměruje na~přihlašovací stránku. Po~přihlášení se zobrazí rozvržení se dvěma stálými prvky -- horní lištou s~informacemi o~přihlášeném uživateli a~tlačítkem pro odhlášení a~postranním menu s~navigací mezi sekcemi.
+
+Administrace obsahuje následující sekce:
+\begin{itemize}
+    \item \textbf{Dashboard} -- přehled statistik (počty článků, událostí, členů, projektů) a~nedávno upravené záznamy s~rychlým přístupem k~editaci.
+    \item \textbf{CRUD rozhraní} pro články, události, projekty, členy a~partnery -- každá entita má seznam záznamů s~možností filtrování, formulář pro vytvoření a~editaci. Články navíc disponují rich-text editorem pro formátování obsahu.
+    \item \textbf{Správa náboru} -- seznam přijatých přihlášek s~filtrováním podle statusu, detail přihlášky s~vizualizací aktuálního workflow (viz sekce~\ref{sec:navrh-nabor-workflow}), možnost přidávat interní poznámky a~konfigurace dostupných rolí a~úkolů.
+    \item \textbf{Knihovna médií} -- nahrávání obrázků, zobrazení galerie nahraných souborů a~jejich správa. Obrázky z~knihovny lze vkládat do~obsahu prostřednictvím modálního okna pro výběr.
+    \item \textbf{Telemetrie} -- přístup k~telemetrickému dashboardu přímo z~administrace.
+\end{itemize}
+
+Ukázka administračního rozhraní pro správu událostí je zachycena na~obrázku~\ref{fig:admin-events}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{admin-events.png}
+\caption{Administrační rozhraní -- správa událostí s~přehledem typů, statusů a~viditelnosti.}
+\label{fig:admin-events}
+\end{figure}
+
+\section{Návrh náborového procesu}
+\label{sec:navrh-nabor}
+
+Náborový proces je navržen jako plně digitální workflow pokrývající cestu od prvního kontaktu zájemce až po jeho přijetí do spolku. Oproti stávajícímu řešení přes externí formulář na platformě JotForm přináší integrovaný formulář s~průběžným ukládáním, e-mailové notifikace a~administrační rozhraní pro správu přihlášek.
+
+\subsection{Vícekrokový formulář}
+
+Náborový formulář je rozdělen do šesti kroků, které uchazeče postupně provedou od zadání kontaktních údajů po odeslání kompletní přihlášky:
+
+\begin{enumerate}
+    \item \textbf{Základní údaje} -- jméno, e-mail a~telefonní číslo. Na základě e-mailu se vytvoří rozpracovaná přihláška (draft) a~uchazeči se odešle odkaz pro pokračování.
+    \item \textbf{Zkušenosti} -- vzdělání, praxe a~technické dovednosti.
+    \item \textbf{Motivace} -- proč se chce uchazeč připojit, oblasti zájmu, preferovaná role a~časová dostupnost.
+    \item \textbf{Úloha} -- volitelná odpověď na úkol související se zvolenou oblastí zájmu.
+    \item \textbf{Pohovor} -- rezervace termínu pohovoru prostřednictvím odkazu na plánovací nástroj.
+    \item \textbf{Souhrn} -- přehled vyplněných dat s~možností vrátit se k~libovolnému kroku před odesláním.
+\end{enumerate}
+
+Každý krok validuje vstupní data samostatně -- uchazeč nemůže postoupit na~další krok bez vyplnění povinných polí. Povinná pole (motivace, jméno, vzdělání, zájmy) mají nastavené minimální délky, aby přihláška obsahovala dostatek informací pro posouzení. Ukázka jednoho z~kroků formuláře je zachycena na~obrázku~\ref{fig:recruitment-form}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{recruitment-form.png}
+\caption{Náborový formulář -- krok motivace s~vizualizací postupu všemi šesti kroky.}
+\label{fig:recruitment-form}
+\end{figure}
+
+\subsection{Draft systém}
+
+Klíčovým prvkem formuláře je mechanismus průběžného ukládání rozpracované přihlášky. Po zadání e-mailové adresy v~prvním kroku server vytvoří záznam se statusem \texttt{draft} a~odešle uchazeči e-mail s~odkazem pro pokračování. Odkaz obsahuje identifikátor přihlášky a~e-mailovou adresu jako ověřovací parametr.
+
+Změny ve formuláři se automaticky ukládají na server s~dvousekundovým zpožděním (debounce), takže uchazeč nepřijde o~vyplněná data ani při neočekávaném zavření prohlížeče. Při návratu přes odkaz systém detekuje poslední vyplněné pole a~automaticky přesměruje uchazeče na odpovídající krok.
+
+\subsection{Odeslání a~notifikace}
+
+Po kontrole souhrnu v~posledním kroku uchazeč odešle přihlášku, čímž se změní status záznamu z~\texttt{draft} na \texttt{pending}. Systém poté odešle dva e-maily:
+\begin{itemize}
+    \item \textbf{Uchazeči} -- potvrzení přijetí přihlášky s~informací o~dalším postupu.
+    \item \textbf{Administrátorovi} -- notifikace o~nové přihlášce s~přímým odkazem do administrace.
+\end{itemize}
+
+\subsection{Administrační workflow}
+\label{sec:navrh-nabor-workflow}
+
+Přijaté přihlášky procházejí vícekrokovým workflow, který vede uchazeče od~prvního kontaktu až po~přijetí do~spolku:
+
+\begin{center}
+\texttt{pending} $\rightarrow$ \texttt{interview\_scheduled} $\rightarrow$ \texttt{interviewed} $\rightarrow$\\
+$\rightarrow$ \texttt{accepted} $\rightarrow$ \texttt{documents\_sent} $\rightarrow$ \texttt{completed}\\
+(s~možností přechodu na~\texttt{rejected} v~kterémkoli kroku)
+\end{center}
+
+\begin{sloppypar}
+V~prvním kroku administrátor zkontroluje doručenou přihlášku (\texttt{pending}). Pokud rozhodne o~jejím postupu, naplánuje uchazeči pohovor zadáním data, na~jehož základě je uchazeči odeslán potvrzovací e-mail; přihláška přejde do~stavu \texttt{interview\-\_scheduled}. Po~uskutečnění pohovoru přepne administrátor přihlášku do~stavu \texttt{inter\-viewed} a~k~záznamu může připojit vlastní poznámky z~rozhovoru. Následné rozhodnutí o~přijetí převede přihlášku do~stavu \texttt{accepted}, načež jsou uchazeči odeslány onboardingové dokumenty (přihláška do~spolku, GDPR souhlas) a~stav se mění na~\texttt{documents\-\_sent}. Po~doručení podepsaných dokumentů uzavře administrátor proces stavem \texttt{completed}, čímž je uchazeč přijat za~člena spolku. V~kterémkoli kroku lze přihlášku zamítnout (\texttt{rejected}) s~uvedením důvodu, který je uchazeči odeslán e-mailem.
+\end{sloppypar}
+
+Administrátor vidí seznam přihlášek s~možností filtrování podle statusu a~vyhledávání podle jména nebo e-mailu. V~detailu přihlášky je workflow vizualizován jako pipeline znázorňující aktuální fázi a~předchozí kroky včetně jejich časových razítek. Přidávat lze také interní poznámky viditelné pouze administrátorům. Po~dokončení procesu (\texttt{completed}) je z~dat přihlášky automaticky vytvořen nový člen spolku s~předvyplněnými kontaktními údaji. Toto rozhraní zároveň otevírá do~budoucna možnost navázat na~dokončený nábor automatizovaný onboarding do~dalších platforem, které spolek využívá. 
+
+\subsection{Konfigurovatelné role a~úkoly}
+
+Dostupné role ve spolku a~úkoly pro uchazeče nejsou pevně zakódované, ale uložené jako JSONB struktury v~tabulce \texttt{recruitment\_settings}. Administrátor je může upravovat bez zásahu do kódu -- přidávat nové role s~popisem, definovat úkoly včetně odhadovaného času na vypracování a~přiřazovat je k~jednotlivým rolím. Formulář poté dynamicky zobrazuje relevantní úkol podle zvoleného zájmu uchazeče.
+
+\section{Návrh telemetrického systému}
+\label{sec:navrh-telemetrie}
+
+Telemetrický systém zajišťuje přenos dat ze senzorů rakety přes pozemní stanici až do prohlížeče operátora. Návrh klade důraz na nízkou latenci, schopnost zpracovávat vysokofrekvenční datové toky a~současně ukládat veškerá data pro zpětnou analýzu. Celkový tok dat znázorňuje obrázek~\ref{fig:telemetry-flow}.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=1.6cm,
+    comp/.style={rectangle, draw, rounded corners, minimum height=1.0cm, minimum width=2.5cm, align=center, font=\small, fill=blue!8},
+    infra/.style={rectangle, draw, rounded corners, minimum height=1.0cm, minimum width=2.5cm, align=center, font=\small, fill=gray!15},
+    ext/.style={rectangle, draw, rounded corners, dashed, minimum height=1.0cm, minimum width=2.5cm, align=center, font=\small},
+    arr/.style={-{Stealth[length=3mm]}, thick},
+    lbl/.style={font=\footnotesize, fill=white, inner sep=1.5pt}
+]
+    % Původní vertikální layout
+    \node[ext] (rocket) {Raketa\\{\footnotesize (senzory)}};
+    \node[ext, below=of rocket] (ground) {Pozemní stanice};
+    \node[infra, below=of ground] (mqtt) {Mosquitto\\{\footnotesize (MQTT broker)}};
+    \node[comp, below=2.8cm of mqtt] (subscriber) {MQTT subscriber};
+    \node[comp, below left=1.6cm and 1.5cm of subscriber] (writer) {InfluxDB writer};
+    \node[comp, below right=1.6cm and 1.5cm of subscriber] (wshub) {WebSocket hub};
+    \node[infra, below=1.6cm of writer] (influx) {InfluxDB};
+    \node[ext, below=1.6cm of wshub] (browser) {Prohlížeč\\{\footnotesize (operátor)}};
+
+    % Dashed box — Go server
+    \begin{pgfonlayer}{background}
+        \node[draw, dashed, rounded corners, inner sep=0.5cm,
+              fit=(subscriber)(writer)(wshub),
+              label={[font=\footnotesize\bfseries, anchor=south west, xshift=0.2cm]above right:Go telemetrický server}] {};
+    \end{pgfonlayer}
+
+    % Arrows — hlavní tok (kanál A)
+    \draw[arr, dashed] (rocket) -- node[lbl, right] {rádio} (ground);
+    \draw[arr] (ground) -- node[lbl, right] {MQTT publish} (mqtt);
+    \draw[arr] (mqtt) -- node[lbl, right] {subscribe} (subscriber);
+    \draw[arr] (subscriber) -- node[lbl, left, pos=0.4] {batch} (writer);
+    \draw[arr] (subscriber) -- node[lbl, right, pos=0.4] {broadcast} (wshub);
+    \draw[arr] (writer) -- node[lbl, left] {write} (influx);
+    \draw[arr] (wshub) -- node[lbl, right] {kanál A} (browser);
+    \draw[arr, dashed] (influx) -- node[lbl, below] {REST API (historie)} (browser);
+
+    % Kanál B — přímý MQTT-over-WebSocket z brokeru do prohlížeče
+    \draw[arr, densely dotted]
+        (mqtt.east) -- ++(6.0cm,0) node[lbl, above] {kanál B (MQTT-over-WS)}
+        -- ++(0,-9.2cm) -- (browser.east);
+
+\end{tikzpicture}
+\caption{Tok telemetrických dat od~rakety po~prohlížeč operátora. Kanál~A prochází Go~serverem, kanál~B spojuje prohlížeč přímo s~brokerem MQTT.}
+\label{fig:telemetry-flow}
+\end{figure}
+
+\subsection{MQTT komunikace}
+
+Telemetrická data jsou z~rakety nebo testovacího standu přenášena do systému prostřednictvím protokolu MQTT. Volba MQTT vychází z~vlastností popsaných v~teoretické části -- protokol je navržen pro nespolehlivé sítě s~omezenou šířkou pásma~\cite{mqtt2014oasis}, což odpovídá podmínkám při raketových startech, kde pozemní stanice komunikuje s~raketou přes rádiový kanál a~přeposílá data na server.
+
+Komunikace využívá vzor publish/subscribe~\cite{quincozes2019mqtt}, ve kterém pozemní stanice publikuje zprávy na pojmenované topiky (kanály) a~telemetrický server je odebírá prostřednictvím MQTT brokeru Mosquitto. Oproti přímému HTTP přenosu, který používalo předchozí řešení spolku, tento model přináší několik výhod: producent a~konzument dat se nemusí vzájemně znát, broker zajišťuje doručení i~při dočasném výpadku jedné strany a~jeden datový tok může současně konzumovat více klientů bez duplikace na straně producenta.
+
+\paragraph{Topic hierarchie}
+
+Topiky sledují hierarchickou strukturu umožňující filtrování dat na úrovni brokeru:
+
+\begin{center}
+\small\texttt{\{session\_id\}/\{device\_type\}/\{device\_id\}/telemetry/\{data\_type\}}
+\end{center}
+
+\noindent Jednotlivé segmenty nesou následující význam:
+\begin{sloppypar}
+\begin{itemize}
+    \item \texttt{session\_id} -- identifikátor konkrétního letu nebo testu (například \texttt{launch-\allowbreak 2026-03-15}),
+    \item \texttt{device\_type} -- typ zařízení: \texttt{rocket} (raketa) nebo \texttt{test-stand} (testovací stand),
+    \item \texttt{device\_id} -- unikátní identifikátor konkrétního zařízení,
+    \item \texttt{data\_type} -- kategorie měřených dat: \texttt{position} (poloha), \texttt{velocity} (rychlost) nebo \texttt{sensors} (senzorická data).
+\end{itemize}
+\end{sloppypar}
+
+\begin{sloppypar}
+Telemetrický server se přihlašuje k~odběru pomocí wildcard vzorů \texttt{+/\allowbreak rocket/\allowbreak +/\allowbreak telemetry/\allowbreak \#} a~\texttt{+/\allowbreak test-stand/\allowbreak +/\allowbreak telemetry/\allowbreak \#}, kde \texttt{+} zastupuje libovolný jeden segment a~\texttt{\#} libovolný počet segmentů~\cite{mqtt2014oasis}. Tím server automaticky zachytává data ze~všech sessions a~zařízení bez nutnosti ruční konfigurace při každém startu.
+\end{sloppypar}
+
+\paragraph{Formát zpráv}
+
+Payload každé MQTT zprávy je JSON objekt s~dynamickými poli odpovídajícími měřeným veličinám. Například zpráva typu \texttt{position} obsahuje pole \texttt{alt} (výška), \texttt{lat} a~\texttt{lon} (GPS souřadnice), zpráva typu \texttt{sensors} pak \texttt{temp} (teplota), \texttt{pressure} (tlak), \texttt{battery} (stav baterie) a~\texttt{gyro} (orientace). Volitelné pole \texttt{ts} obsahuje časové razítko z~palubního počítače v~milisekundách od~epochy. Vlastním časovým razítkem datového bodu v~InfluxDB je vždy čas příjmu zprávy serverem; pokud payload obsahuje pole \texttt{ts}, server jej uloží jako pomocné pole \texttt{device\_ts} a~automaticky dopočítá latenci přenosu (\texttt{latency\_ms}) jako rozdíl obou časů.
+
+Dynamická struktura payloadu umožňuje přidávat nové typy senzorů bez úprav serveru -- jakékoli klíče obsažené v~JSON objektu jsou automaticky zapsány jako pole datového bodu do InfluxDB.
+
+\paragraph{Kvalita doručení}
+
+Pro telemetrická data je zvolena úroveň QoS~1 (at least once)~\cite{mqtt2014oasis}. Při nedoručení zprávy klient automaticky provede opakovaný přenos po obnovení spojení, což zajišťuje kompletnost dat i~při nestabilním připojení pozemní stanice~\cite{kegenbekov2022mqtt}. Případné duplicitní doručení nepředstavuje problém -- InfluxDB přepíše datový bod se stejným časovým razítkem. Úroveň QoS~1 musí být nastavena konzistentně na publisheru i~subscriberu, protože efektivní QoS odpovídá minimu z~obou stran~\cite{mqtt2014oasis}.
+
+Vlastní benchmark popsaný v~sekci~\ref{sec:qos-benchmark} ukazuje, že QoS~0 a~QoS~1 dosahují při frekvencích 10--50\,Hz srovnatelné latence (přibližně 46--66\,ms) bez ztrát, zatímco QoS~2 vykazuje dvojnásobnou latenci a~při vyšších frekvencích významné ztráty.
+
+\subsection{Go telemetrický server}
+
+Jádrem telemetrického systému je server napsaný v~Go, který plní tři souběžné úlohy: \textbf{MQTT subscriber} (příjem dat z~MQTT brokeru), \textbf{InfluxDB writer} (perzistence do časové databáze) a~\textbf{WebSocket hub} (distribuce v~reálném čase připojeným klientům). Každá úloha běží jako samostatná goroutina, což umožňuje zpracovávat všechny tři operace paralelně bez vzájemného blokování.
+
+\paragraph{MQTT subscriber}
+
+Subscriber se při spuštění přihlásí k~odběru wildcard topiků na MQTT brokeru a~každou přijatou zprávu parsuje -- z~topiku extrahuje session, typ zařízení, identifikátor a~kategorii dat, z~payloadu dekóduje JSON s~měřenými hodnotami. Výslednou strukturu předá současně oběma dalším komponentám prostřednictvím Go kanálů (channels).
+
+\paragraph{InfluxDB writer}
+
+Writer ukládá přijatá data do časové databáze dávkovým zápisem. Datové body se hromadí v~bufferu a~zapisují se buď po dosažení 500~bodů, nebo po uplynutí 100~ms od posledního zápisu -- podle toho, co nastane dříve. Dávkový zápis výrazně snižuje počet I/O operací oproti zápisu každého bodu jednotlivě a~umožňuje zvládnout vysokou frekvenci příchozích dat bez zahlcení databáze.
+
+\paragraph{WebSocket hub}
+
+Hub spravuje připojení klientů (prohlížečů) a~distribuuje jim telemetrická data v~reálném čase. Každý klient se při připojení přihlásí k~odběru konkrétní session a~hub mu odesílá pouze relevantní data. Pro snížení síťové režie hub sdružuje zprávy do mikrodávek a~implementuje mechanismus zpětného tlaku (backpressure) pro případ, že klient nestíhá zprávy přijímat. Implementační detaily mikrodávkování a~backpressure jsou popsány v~kapitole~\ref{chap:implementace}.
+
+\subsection{Dual-channel architektura}
+
+Prohlížeč má k~dispozici dva nezávislé kanály pro příjem telemetrických dat:
+
+\begin{enumerate}
+    \item \textbf{Kanál~A -- Go WebSocket.} Data procházejí Go serverem, který je sdružuje do mikrodávek, filtruje podle session a~řídí backpressure. Tento kanál poskytuje optimalizovaný a~stabilní tok dat.
+    \item \textbf{Kanál~B -- přímý MQTT-over-WebSocket.} Prohlížeč se připojí přímo k~Mosquitto brokeru na portu 9001 a~odebírá surová MQTT data bez zprostředkování Go serverem. Tento kanál funguje nezávisle na telemetrickém serveru, takže data proudí i~při jeho výpadku.
+\end{enumerate}
+
+Operátor si volí režim příjmu dat prostřednictvím přepínače ve stavové liště: pouze kanál~A, pouze kanál~B (výchozí), nebo oba současně pro porovnání výkonnosti. Výchozím kanálem je B, protože nevyžaduje běžící Go server a~umožňuje okamžité sledování dat ihned po spuštění MQTT brokeru. Oba kanály implementují nezávislou reconnect logiku s~exponenciálním zpožděním při výpadku spojení.
+
+\subsection{Telemetrický dashboard}
+
+Dashboard v~prohlížeči pracuje ve dvou režimech:
+
+\textbf{Live režim} zobrazuje data z~probíhajícího letu v~reálném čase. Rozhraní obsahuje časové grafy klíčových veličin (výška, rychlost, zrychlení), GPS mapu s~trajektorií letu, panely s~aktuálními hodnotami senzorů (teplota, tlak, stav baterie) a~indikátor aktuální fáze letu (odpočet, vzlet, stoupání, let setrvačností, apogeum, sestup, přistání).
+
+\textbf{Historie} zobrazuje statické grafy zaznamenaného letu (výška, rychlost, teplota, tlak) načtené z~InfluxDB prostřednictvím REST API s~podporou downsamplingu -- uživatel volí rozlišení dat (od surových až po 30sekundové agregace) a~server automaticky agreguje data, aby se snížil objem přenášených bodů. Data lze exportovat do formátu CSV nebo JSON.
+
+\subsection{Simulátor}
+
+Pro vývoj a~testování telemetrického systému bez nutnosti fyzického raketového startu slouží simulátor -- samostatný Go program, který generuje realistická telemetrická data a~publikuje je na MQTT broker ve stejném formátu jako skutečná pozemní stanice.
+
+Simulátor modeluje průběh letu včetně jednotlivých fází (odpočet, vzlet, stoupání, let setrvačností, apogeum, sestup, přistání) a~pro každou fázi generuje odpovídající hodnoty -- stoupající výšku a~rychlost při vzletu, pokles teploty s~rostoucí výškou, úbytek baterie v~čase a~šum gyroskopu. Konfigurovatelné parametry zahrnují frekvenci vysílání (Hz), identifikátor session a~délku simulovaného letu.
+
+\section{Bezpečnost}
+\label{sec:navrh-bezpecnost}
+
+Bezpečnostní opatření platformy pokrývají tři oblasti: autentizaci uživatelů při přístupu do administrace, ochranu API endpointů před neoprávněným zápisem a~bezpečné ukládání citlivých údajů.
+
+\subsection{Autentizační tok}
+
+Přihlášení do administrace prochází dvěma systémy -- NextAuth na frontendu a~vlastní JWT autentizací na backendu. Celý tok probíhá v~následujících krocích:
+
+\begin{enumerate}
+    \item Uživatel zadá e-mail a~heslo na přihlašovací stránce (\texttt{/admin/login}).
+    \item NextAuth prostřednictvím \texttt{Credentials\-Provider} odešle požadavek \texttt{POST\allowbreak{} /api/\allowbreak auth/\allowbreak login} na~backend API.
+    \item Backend vyhledá uživatele v~databázi podle e-mailu a~ověří heslo porovnáním s~uloženým hashem pomocí \texttt{bcrypt.compare}.
+    \item Při úspěšném ověření backend vygeneruje JWT token s~payloadem obsahujícím identifikátor uživatele, e-mail a~roli. Token má platnost 7~dní.
+    \item NextAuth přijme token a~uloží jej prostřednictvím callbacků -- \texttt{jwt()} callback přenese backend token do session a~\texttt{session()} callback jej zpřístupní klientské aplikaci.
+    \item Session je uložena v~httpOnly cookie, kterou prohlížeč automaticky odesílá při každém požadavku.
+\end{enumerate}
+
+Při následných požadavcích na chráněné API endpointy frontend přiloží backend JWT token v~hlavičce \texttt{Authorization: Bearer <token>}. Middleware na straně API token ověří a~extrahuje identitu uživatele.
+
+Next.js middleware chrání všechny cesty pod \texttt{/admin/*} -- nepřihlášeného uživatele přesměruje na přihlašovací stránku, přihlášeného uživatele přesměruje z~přihlašovací stránky na dashboard.
+
+Pro komunikaci mezi frontendem a~backendem v~Docker prostředí se používají dvě adresy: server-side požadavky (při přihlašování) využívají interní Docker adresu (\texttt{INTERNAL\_API\_URL}), zatímco klientské požadavky z~prohlížeče používají veřejnou adresu (\texttt{NEXT\_PUBLIC\_API\_URL}).
+
+\subsection{Ochrana API}
+
+Každý požadavek na API prochází řetězcem middleware funkcí v~pořadí: logger (záznam požadavků) $\rightarrow$ CORS -- Cross-Origin Resource Sharing (kontrola původu) $\rightarrow$ případný \texttt{authMiddleware} (ověření tokenu) $\rightarrow$ handler (zpracování požadavku).
+
+CORS middleware povoluje požadavky pouze z~nakonfigurovaných domén (\texttt{CORS\-\_ORIGIN}) a~vyžaduje příznak \texttt{credentials:\allowbreak{} true} pro odesílání autentizačních hlaviček. Tím se na~úrovni prohlížeče zabraňuje tomu, aby skripty běžící na~cizích doménách komunikovaly s~API. CORS slouží primárně jako ochrana koncového uživatele v~prohlížeči; samotná autorizace API je zajišťována JWT middlewarem.
+
+Validace vstupních dat prostřednictvím Zod schémat na všech POST a~PUT endpointech zajišťuje, že API nepřijme neočekávaná nebo neplatná data. Validace probíhá ještě před zpracováním požadavku, čímž se snižuje riziko chyb na úrovni databáze.
+
+\subsection{Ukládání hesel}
+
+Hesla uživatelů jsou hashována algoritmem bcrypt s~cost faktorem 10 (tj. $2^{10}$ iterací klíčového rozvrhu) a~automaticky generovanou solí. V~databázi se ukládá výhradně výsledný hash -- původní heslo nelze z~hashe rekonstruovat. Při ověřování se zadané heslo hashuje se stejnou solí a~výsledek se porovnává s~uloženým hashem.

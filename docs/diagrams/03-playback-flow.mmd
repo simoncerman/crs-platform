@@ -1,0 +1,16 @@
+sequenceDiagram
+    participant B as Prohlížeč
+    participant G as Go Server (REST API)
+    participant I as InfluxDB
+
+    B->>G: GET /api/sessions
+    G->>I: Flux: schema.tagValues(tag: "session_id")
+    I-->>G: ["quick-test", "demo-sim", ...]
+    G-->>B: { sessions: [...] }
+
+    B->>G: GET /api/history?session_id=quick-test&resolution=1s
+    G->>I: Flux: from(bucket) |> filter |> aggregateWindow(every: 1s, fn: last)
+    I-->>G: Downsampled data points
+    G-->>B: [{ time, field, value, session_id, device_type, ... }]
+
+    Note over B: Playback s ovládáním rychlosti (0.5x–20x)<br/>Grafy: výška, rychlost, teplota, tlak

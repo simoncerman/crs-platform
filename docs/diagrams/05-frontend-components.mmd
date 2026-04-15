@@ -1,0 +1,41 @@
+graph TB
+    subgraph PAGE["Stránka /telemetrie/live/[sessionId]"]
+        TP["TelemetryProvider<br/>Context + state management"]
+
+        subgraph HOOKS["Datové kanály"]
+            H_MQTT["useDirectMqtt<br/>(Kanál B)"]
+            H_WS["useGoWebSocket<br/>(Kanál A)"]
+        end
+
+        subgraph COMPONENTS["UI Komponenty"]
+            SB["StatusBar<br/>stav, hodiny, msg/s"]
+            FP["FlightPhase<br/>aktuální fáze letu"]
+            GP["GaugePanel<br/>vizuální ukazatele"]
+            TM["TrajectoryMap<br/>GPS trajektorie"]
+            AC["AltitudeChart<br/>výška vs čas"]
+            VC["VelocityChart<br/>rychlost vs čas"]
+            SI["SensorInfo<br/>tabulka senzorů"]
+            LP["LatencyPanel<br/>latence, tok dat"]
+            RD["RawDataPanel<br/>posledních 50 zpráv"]
+        end
+    end
+
+    H_MQTT --> TP
+    H_WS --> TP
+    TP --> SB
+    TP --> FP
+    TP --> GP
+    TP --> TM
+    TP --> AC
+    TP --> VC
+    TP --> SI
+    TP --> LP
+    TP --> RD
+
+    classDef provider fill:#9b59b6,stroke:#8e44ad,color:#fff
+    classDef hook fill:#e74c3c,stroke:#c0392b,color:#fff
+    classDef comp fill:#3498db,stroke:#2980b9,color:#fff
+
+    class TP provider
+    class H_MQTT,H_WS hook
+    class SB,FP,GP,TM,AC,VC,SI,LP,RD comp

@@ -1,0 +1,215 @@
+\renewcommand{\thechapter}{\arabic{chapter}}
+
+\chapter{ER diagram relační databáze}
+\label{app:er-diagram}
+
+\begin{sloppypar}
+Diagram znázorňuje strukturu relační databáze PostgreSQL. Společné sloupce \texttt{created\_at} a~\texttt{updated\_at} jsou pro přehlednost vynechány.
+\end{sloppypar}
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    head/.style={
+        rectangle, draw, fill=blue!12,
+        minimum width=3.2cm, minimum height=0.55cm,
+        font=\sffamily\bfseries\footnotesize
+    },
+    body/.style={
+        rectangle, draw, fill=white,
+        minimum width=3.2cm,
+        font=\ttfamily\tiny,
+        text width=2.9cm,
+        inner sep=2.5pt,
+        align=left,
+        anchor=north
+    },
+    rel/.style={-{Stealth[length=2mm]}, semithick, black!50},
+    rellbl/.style={font=\sffamily\tiny\bfseries, fill=white, inner sep=1pt}
+]
+
+% === SLOUPEC 1 ===
+
+\node[head] (uh) at (0, 0) {users};
+\node[body, below=-0.3pt of uh] (ub) {%
+\textbf{PK} id: uuid\\
+email: varchar\\
+password\_hash: text\\
+name: varchar\\
+role: varchar
+};
+
+\node[head] (eh) at (0, -4.2) {events};
+\node[body, below=-0.3pt of eh] (eb) {%
+\textbf{PK} id: uuid\\
+title, slug: varchar\\
+description: text\\
+location: varchar\\
+start\_date, end\_date\\
+cover\_image: text\\
+event\_type: varchar\\
+special\_status: varchar\\
+published: boolean
+};
+
+\node[head] (rsh) at (0, -8.8) {recruitment\_submissions};
+\node[body, below=-0.3pt of rsh] (rsb) {%
+\textbf{PK} id: uuid\\
+name, email, phone\\
+education, experience\\
+interests, motivation\\
+skills, preferred\_role\\
+availability, task: text\\
+status: varchar\\
+notes: text
+};
+
+% === SLOUPEC 2 ===
+
+\node[head] (ah) at (4.5, 0) {articles};
+\node[body, below=-0.3pt of ah] (ab) {%
+\textbf{PK} id: uuid\\
+title, slug: varchar\\
+excerpt, content: text\\
+cover\_image: text\\
+images, tags: jsonb\\
+category, status: varchar\\
+published: boolean\\
+published\_at: timestamp\\
+\textbf{FK} author\_id → users
+};
+
+\node[head] (mh) at (4.5, -4.2) {members};
+\node[body, below=-0.3pt of mh] (mb) {%
+\textbf{PK} id: uuid\\
+name, email, phone\\
+role, department\\
+tags: jsonb\\
+bio, avatar: text\\
+linkedin, github: text\\
+active: boolean
+};
+
+\node[head] (seth) at (4.5, -8.8) {recruitment\_settings};
+\node[body, below=-0.3pt of seth] (setb) {%
+\textbf{PK} id: uuid\\
+is\_active: boolean\\
+roles: jsonb\\
+tasks: jsonb
+};
+
+% === SLOUPEC 3 ===
+
+\node[head] (ph) at (9, 0) {projects};
+\node[body, below=-0.3pt of ph] (pb) {%
+\textbf{PK} id: uuid\\
+name, slug: varchar\\
+description: text\\
+category, status: varchar\\
+cover\_image: text\\
+images, specs: jsonb\\
+published: boolean\\
+is\_featured: boolean
+};
+
+\node[head] (pmh) at (9, -4.2) {project\_members};
+\node[body, below=-0.3pt of pmh] (pmb) {%
+\textbf{PK} id: uuid\\
+\textbf{FK} project\_id → projects\\
+\textbf{FK} member\_id → members\\
+role: varchar
+};
+
+\node[head] (parh) at (9, -8.8) {partners};
+\node[body, below=-0.3pt of parh] (parb) {%
+\textbf{PK} id: uuid\\
+name: varchar\\
+tier: enum (s/g/d)\\
+logo: text\\
+description: text\\
+full\_description: text\\
+hero\_image: text\\
+website: text\\
+order: integer\\
+published: boolean
+};
+
+% === RELACE ===
+
+% users 1:N articles
+\draw[rel] (uh.east) -- node[rellbl, above] {1:N} (ah.west);
+
+% projects 1:N project_members
+\draw[rel] (ph.south west) -- node[rellbl, left] {1:N} (pmh.north west);
+
+% members 1:N project_members
+\draw[rel] (mh.east) -- node[rellbl, above] {1:N} (pmh.west);
+
+\end{tikzpicture}
+}%
+\caption{ER diagram relační databáze platformy.}
+\label{fig:er-diagram}
+\end{figure}
+
+\chapter{Screenshoty aplikace}
+\label{app:screenshots}
+
+V~této příloze jsou souhrnně zobrazeny vybrané screenshoty aplikace ilustrující klíčové části platformy. Obrázky jsou rovněž průběžně odkazovány v~jednotlivých kapitolách u~odpovídajících popisů.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{homepage.png}
+\caption{Úvodní stránka veřejného webu Czech Rocket Society.}
+\label{fig:appendix-homepage}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{recruitment-form.png}
+\caption{Náborový formulář -- ukázka jednoho z~kroků s~vizualizací postupu.}
+\label{fig:appendix-recruitment}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{admin-events.png}
+\caption{Administrační rozhraní -- správa událostí s~přehledem typů, statusů a~viditelnosti.}
+\label{fig:appendix-admin-events}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{richtext-editor.png}
+\caption{Rich-text editor Tiptap v~administraci s~formátovacím toolbarem.}
+\label{fig:appendix-richtext}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{telemetry-live.png}
+\caption{Telemetrický dashboard v~live režimu -- časové grafy, senzory, GPS trajektorie a~stavová lišta.}
+\label{fig:appendix-telemetry}
+\end{figure}
+
+\chapter{Obsah přiloženého média}
+\label{app:medium}
+
+% TODO: Doplnit odkaz na GitHub repozitář
+
+\noindent Repozitář obsahuje:
+\begin{itemize}
+    \item \texttt{apps/web/} -- zdrojový kód frontendové aplikace (Next.js)
+    \item \texttt{apps/api/} -- zdrojový kód backendové aplikace (Hono)
+    \item \texttt{apps/telemetry/} -- zdrojový kód telemetrického serveru (Go)
+    \item \texttt{docker/} -- konfigurace Docker Compose a~služeb
+    \item \texttt{thesis/} -- zdrojové soubory bakalářské práce (\LaTeX)
+    \item \texttt{README.md} -- návod k~instalaci a~spuštění
+\end{itemize}
+
+\chapter{Zadání práce}
+\label{app:zadani}
+
+\noindent Originální zadání bakalářské práce z~informačního systému IS~STAG je vloženo na~následujících stránkách.
+
+\includepdf[pages=-,pagecommand={},width=\textwidth]{images/zadani-stag.pdf}

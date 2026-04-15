@@ -1,0 +1,167 @@
+version: '3.8'
+
+services:
+  # PostgreSQL - Primární databáze
+  postgres:
+    image: postgres:16-alpine
+    container_name: crs-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: crs_dev
+      POSTGRES_PASSWORD: dev_password_change_in_prod
+      POSTGRES_DB: crs_platform
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crs_dev -d crs_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # pgAdmin - Database management (optional, pro pohodlí)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: crs-pgadmin
+    restart: unless-stopped
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@crs.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    depends_on:
+      - postgres
+
+  # InfluxDB - Telemetrická databáze
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: crs-influxdb
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: crs_admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: dev_password_change_in_prod
+      DOCKER_INFLUXDB_INIT_ORG: czech-rocket-society
+      DOCKER_INFLUXDB_INIT_BUCKET: telemetry
+      DOCKER_INFLUXDB_INIT_RETENTION: 0
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: dev-token-change-in-prod
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Mosquitto - MQTT Broker
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: crs-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_logs:/mosquitto/log
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Telemetry - Go backend pro telemetrická data
+  telemetry:
+    build:
+      context: ../apps/telemetry
+      dockerfile: Dockerfile
+    container_name: crs-telemetry
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      - MQTT_BROKER=mosquitto:1883
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=dev-token-change-in-prod
+      - INFLUX_ORG=czech-rocket-society
+      - INFLUX_BUCKET=telemetry
+      - WS_PORT=8082
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+
+  # MailHog - E-mailový SMTP server pro vývoj
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: crs-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  # API - Backend service
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    container_name: crs-api
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - DATABASE_URL=postgres://crs_dev:dev_password_change_in_prod@postgres:5432/crs_platform
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+      - JWT_EXPIRES_IN=7d
+      - PORT=3001
+      - NODE_ENV=development
+      - CORS_ORIGIN=http://localhost:3000
+      - SMTP_HOST=mailhog
+      - SMTP_PORT=1025
+      - MAIL_FROM=noreply@crs.local
+      - ADMIN_EMAIL=admin@crs.local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../apps/api:/app/apps/api
+      - /app/apps/api/node_modules
+    command: sh -c "pnpm run db:push && pnpm run dev"
+
+  # Web - Frontend service
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    container_name: crs-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3001
+      - INTERNAL_API_URL=http://api:3001
+      - NEXTAUTH_SECRET=your-super-secret-key-change-in-production
+      - NEXTAUTH_URL=http://localhost:3000
+    depends_on:
+      - api
+    volumes:
+      - ../apps/web:/app/apps/web
+      - /app/apps/web/node_modules
+      - /app/apps/web/.next
+
+volumes:
+  postgres_data:
+  influxdb_data:
+  influxdb_config:
+  mosquitto_data:
+  mosquitto_logs:
+
+networks:
+  default:
+    name: crs-network
