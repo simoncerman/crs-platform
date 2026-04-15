@@ -8,7 +8,7 @@ Webová aplikace pro Czech Rocket Society umožňující prezentaci činností s
 
 - **Autor:** Šimon Cerman
 - **Vedoucí práce:** Petr Bauer
-- **Rok:** 2025
+- **Rok:** 2026
 
 ## Tech Stack
 
